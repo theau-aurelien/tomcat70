@@ -34,7 +34,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * as they come in on a socket.
  * <br>
  * <b>THIS CLASS IS NOT THREAD SAFE</B><BR>
- * <br/>
+ * <br>
  * Transfer package:
  * <ul>
  * <li><b>START_DATA/b> - 7 bytes - <i>FLT2002</i></li>
@@ -530,14 +530,16 @@ public class XByteBuffer
                 return -1;
             //assume it does exist
             found = true;
-            for (int i = 1; ( (i < findlen) && found); i++)
-                found = found && (find[i] == src[pos + i]);
-            if (found)
+            for (int i = 1; ( (i < findlen) && found); i++) {
+                found = (find[i] == src[pos + i]);
+            }
+            if (found) {
                 result = pos;
-            else if ( (srclen - pos) < findlen)
+            } else if ( (srclen - pos) < findlen) {
                 return -1; //no more matches possible
-            else
+            } else {
                 pos++;
+            }
         }
         return result;
     }

@@ -63,7 +63,7 @@ public class MemberImpl implements Member, java.io.Externalizable {
     /**
      * The listen host for this member
      */
-    protected byte[] host;
+    protected byte[] host = new byte[0];
     protected transient String hostname;
     /**
      * The tcp listen port for this member
@@ -121,6 +121,11 @@ public class MemberImpl implements Member, java.io.Externalizable {
      * Domain if we want to filter based on domain.
      */
     protected byte[] domain = new byte[0];
+
+    /**
+     * The flag indicating that this member is a local member.
+     */
+    protected volatile boolean local = false;
 
     /**
      * Empty constructor for serialization
@@ -644,6 +649,14 @@ public class MemberImpl implements Member, java.io.Externalizable {
     public void setUdpPort(int port) {
         this.udpPort = port;
         this.dataPkg = null;
+    }
+
+    public boolean isLocal() {
+        return local;
+    }
+
+    public void setLocal(boolean local) {
+        this.local = local;
     }
 
     @Override

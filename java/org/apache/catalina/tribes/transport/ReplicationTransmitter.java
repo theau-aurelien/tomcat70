@@ -17,6 +17,7 @@
 
 package org.apache.catalina.tribes.transport;
 
+import org.apache.catalina.tribes.Channel;
 import org.apache.catalina.tribes.ChannelException;
 import org.apache.catalina.tribes.ChannelMessage;
 import org.apache.catalina.tribes.ChannelSender;
@@ -32,6 +33,8 @@ import org.apache.catalina.tribes.util.StringManager;
  * @author Filip Hanik
  */
 public class ReplicationTransmitter implements ChannelSender {
+
+    private Channel channel;
 
     /**
      * The descriptive information about this implementation.
@@ -97,6 +100,7 @@ public class ReplicationTransmitter implements ChannelSender {
     @Override
     public synchronized void stop() {
         getTransport().disconnect();
+        channel = null;
     }
 
     /**
@@ -128,6 +132,14 @@ public class ReplicationTransmitter implements ChannelSender {
     @Override
     public synchronized void remove(Member member) {
         getTransport().remove(member);
+    }
+
+    public Channel getChannel() {
+        return channel;
+    }
+
+    public void setChannel(Channel channel) {
+        this.channel = channel;
     }
 
     // ------------------------------------------------------------- protected

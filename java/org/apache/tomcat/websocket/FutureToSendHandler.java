@@ -21,21 +21,39 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 
 import javax.websocket.SendHandler;
 import javax.websocket.SendResult;
+
+import org.apache.tomcat.util.res.StringManager;
+
 
 /**
  * Converts a Future to a SendHandler.
  */
 class FutureToSendHandler implements Future<Void>, SendHandler {
 
+    private static final StringManager sm = StringManager.getManager(Constants.PACKAGE_NAME);
+
     private final CountDownLatch latch = new CountDownLatch(1);
     private final WsSession wsSession;
-    private volatile SendResult result = null;
+    private final boolean closeMessage;
+    private volatile AtomicReference<SendResult> result = new AtomicReference<SendResult>(null);
 
     public FutureToSendHandler(WsSession wsSession) {
+        this(wsSession, false);
+    }
+
+
+    public FutureToSendHandler(WsSession wsSession, boolean closeMessage) {
         this.wsSession = wsSession;
+        this.closeMessage = closeMessage;
+    }
+
+
+    public boolean isCloseMessage() {
+        return closeMessage;
     }
 
 
@@ -43,8 +61,7 @@ class FutureToSendHandler implements Future<Void>, SendHandler {
 
     @Override
     public void onResult(SendResult result) {
-
-        this.result = result;
+        this.result.compareAndSet(null, result);
         latch.countDown();
     }
 
@@ -77,8 +94,8 @@ class FutureToSendHandler implements Future<Void>, SendHandler {
         } finally {
             wsSession.unregisterFuture(this);
         }
-        if (result.getException() != null) {
-            throw new ExecutionException(result.getException());
+        if (result.get().getException() != null) {
+            throw new ExecutionException(result.get().getException());
         }
         return null;
     }
@@ -96,14 +113,12 @@ class FutureToSendHandler implements Future<Void>, SendHandler {
 
         }
         if (retval == false) {
-            throw new TimeoutException();
+            throw new TimeoutException(sm.getString("futureToSendHandler.timeout",
+                    Long.valueOf(timeout), unit.toString().toLowerCase()));
         }
-        if (result.getException() != null) {
-            throw new ExecutionException(result.getException());
+        if (result.get().getException() != null) {
+            throw new ExecutionException(result.get().getException());
         }
         return null;
     }
 }
-
-
-

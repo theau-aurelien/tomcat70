@@ -56,7 +56,8 @@ public class TestKeepAliveCount extends TomcatBaseTest {
             if (init) return;
 
             Tomcat tomcat = getTomcatInstance();
-            Context root = tomcat.addContext("", TEMP_DIR);
+            // No file system docBase required
+            Context root = tomcat.addContext("", null);
             Tomcat.addServlet(root, "Simple", new SimpleServlet());
             root.addServletMapping("/test", "Simple");
             tomcat.getConnector().setProperty("maxKeepAliveRequests", "5");
@@ -109,7 +110,7 @@ public class TestKeepAliveCount extends TomcatBaseTest {
 
             for (int i=0; i<5; i++) {
                 processRequest(false); // blocks until response has been read
-                assertTrue(getResponseLine()!=null && getResponseLine().trim().startsWith("HTTP/1.1 200"));
+                assertTrue(getResponseLine()!=null && getResponseLine().startsWith("HTTP/1.1 200 "));
             }
             boolean passed = (this.readLine()==null);
             // Close the connection

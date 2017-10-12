@@ -20,6 +20,8 @@ package org.apache.catalina.core;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.apache.catalina.Lifecycle;
 import org.apache.catalina.LifecycleEvent;
@@ -27,6 +29,7 @@ import org.apache.catalina.LifecycleListener;
 import org.apache.juli.logging.Log;
 import org.apache.juli.logging.LogFactory;
 import org.apache.tomcat.jni.Library;
+import org.apache.tomcat.jni.LibraryNotFoundError;
 import org.apache.tomcat.jni.SSL;
 import org.apache.tomcat.util.ExceptionUtils;
 import org.apache.tomcat.util.res.StringManager;
@@ -47,6 +50,13 @@ public class AprLifecycleListener
     private static final Log log = LogFactory.getLog(AprLifecycleListener.class);
     private static boolean instanceCreated = false;
     /**
+     * Info messages during init() are cached until Lifecycle.BEFORE_INIT_EVENT
+     * so that, in normal (non-error) cases, init() related log messages appear
+     * at the expected point in the lifecycle.
+     */
+    private static final List<String> initInfoLogMessages = new ArrayList<String>(3);
+
+    /**
      * The string manager for this package.
      */
     protected static final StringManager sm =
@@ -55,12 +65,11 @@ public class AprLifecycleListener
 
     // ---------------------------------------------- Constants
 
-
     protected static final int TCN_REQUIRED_MAJOR = 1;
     protected static final int TCN_REQUIRED_MINOR = 1;
-    protected static final int TCN_REQUIRED_PATCH = 30;
-    protected static final int TCN_RECOMMENDED_MINOR = 1;
-    protected static final int TCN_RECOMMENDED_PV = 30;
+    protected static final int TCN_REQUIRED_PATCH = 32;
+    protected static final int TCN_RECOMMENDED_MINOR = 2;
+    protected static final int TCN_RECOMMENDED_PV = 8;
 
 
     // ---------------------------------------------- Properties
@@ -93,7 +102,7 @@ public class AprLifecycleListener
     protected static final Object lock = new Object();
 
     public static boolean isAprAvailable() {
-        //https://issues.apache.org/bugzilla/show_bug.cgi?id=48613
+        //https://bz.apache.org/bugzilla/show_bug.cgi?id=48613
         if (instanceCreated) {
             synchronized (lock) {
                 init();
@@ -119,6 +128,10 @@ public class AprLifecycleListener
         if (Lifecycle.BEFORE_INIT_EVENT.equals(event.getType())) {
             synchronized (lock) {
                 init();
+                for (String msg : initInfoLogMessages) {
+                    log.info(msg);
+                }
+                initInfoLogMessages.clear();
                 if (aprAvailable) {
                     try {
                         initializeSSL();
@@ -184,23 +197,26 @@ public class AprLifecycleListener
         aprInitialized = true;
 
         try {
-            String methodName = "initialize";
-            Class<?> paramTypes[] = new Class[1];
-            paramTypes[0] = String.class;
-            Object paramValues[] = new Object[1];
-            paramValues[0] = null;
-            Class<?> clazz = Class.forName("org.apache.tomcat.jni.Library");
-            Method method = clazz.getMethod(methodName, paramTypes);
-            method.invoke(null, paramValues);
-            major = clazz.getField("TCN_MAJOR_VERSION").getInt(null);
-            minor = clazz.getField("TCN_MINOR_VERSION").getInt(null);
-            patch = clazz.getField("TCN_PATCH_VERSION").getInt(null);
+            Library.initialize(null);
+            major = Library.TCN_MAJOR_VERSION;
+            minor = Library.TCN_MINOR_VERSION;
+            patch = Library.TCN_PATCH_VERSION;
             apver = major * 1000 + minor * 100 + patch;
+        } catch (LibraryNotFoundError lnfe) {
+            // Library not on path
+            if (log.isDebugEnabled()) {
+                log.debug(sm.getString("aprListener.aprInitDebug",
+                        lnfe.getLibraryNames(), System.getProperty("java.library.path"),
+                        lnfe.getMessage()), lnfe);
+            }
+            initInfoLogMessages.add(sm.getString("aprListener.aprInit",
+                    System.getProperty("java.library.path")));
+            return;
         } catch (Throwable t) {
+            // Library present but failed to load
             t = ExceptionUtils.unwrapInvocationTargetException(t);
             ExceptionUtils.handleThrowable(t);
-            log.info(sm.getString("aprListener.aprInit",
-                    System.getProperty("java.library.path")));
+            log.warn(sm.getString("aprListener.aprInitError", t.getMessage()), t);
             return;
         }
         if (apver < rqver) {
@@ -220,21 +236,21 @@ public class AprLifecycleListener
             return;
         }
         if (apver < rcver) {
-            log.info(sm.getString("aprListener.tcnVersion", major + "."
-                    + minor + "." + patch,
+            initInfoLogMessages.add(sm.getString("aprListener.tcnVersion",
+                    major + "." + minor + "." + patch,
                     TCN_REQUIRED_MAJOR + "." +
                     TCN_RECOMMENDED_MINOR + "." +
                     TCN_RECOMMENDED_PV));
         }
 
-        log.info(sm.getString("aprListener.tcnValid", major + "."
-                    + minor + "." + patch,
-                    Library.APR_MAJOR_VERSION + "."
-                    + Library.APR_MINOR_VERSION + "."
-                    + Library.APR_PATCH_VERSION));
+        initInfoLogMessages.add(sm.getString("aprListener.tcnValid",
+                major + "." + minor + "." + patch,
+                Library.APR_MAJOR_VERSION + "." +
+                Library.APR_MINOR_VERSION + "." +
+                Library.APR_PATCH_VERSION));
 
         // Log APR flags
-        log.info(sm.getString("aprListener.flags",
+        initInfoLogMessages.add(sm.getString("aprListener.flags",
                 Boolean.valueOf(Library.APR_HAVE_IPV6),
                 Boolean.valueOf(Library.APR_HAS_SENDFILE),
                 Boolean.valueOf(Library.APR_HAS_SO_ACCEPTFILTER),

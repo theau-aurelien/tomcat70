@@ -38,7 +38,7 @@
 </section>
 
 <section name="Application development">
-<p>Tomcat implements the Java WebSocket 1.0 API defined by <a
+<p>Tomcat implements the Java WebSocket 1.1 API defined by <a
    href="http://www.jcp.org/en/jsr/detail?id=356">JSR-356</a>.</p>
 
 <p>There are several example applications that demonstrate how the WebSocket API
@@ -68,7 +68,7 @@ implement its own timeout mechanism to handle these cases.</p>
 </section>
 
 <section name="Tomcat WebSocket specific configuration">
-<p>The JSR-356 Java WebSocket 1.0 implementation is only available when Tomcat
+<p>The JSR-356 Java WebSocket 1.1 implementation is only available when Tomcat
    is running on Java 7 or later.</p>
 
 <p>Tomcat provides a number of Tomcat specific configuration options for
@@ -152,6 +152,14 @@ implement its own timeout mechanism to handle these cases.</p>
       set then the <code>org.apache.tomcat.websocket.SSL_TRUSTSTORE</code> and
       <code>org.apache.tomcat.websocket.SSL_TRUSTSTORE_PWD</code> properties
       will be ignored.</p>
+
+<p>When using the WebSocket client to connect to server endpoints, the number of
+   HTTP redirects that the client will follow is controlled by the
+   <code>userProperties</code> of the provided
+   <code>javax.websocket.ClientEndpointConfig</code>. The property is
+   <ocde>org.apache.tomcat.websocket.MAX_REDIRECTIONS</ocde>. The default value
+   is 20. Redirection support can be disabled by configuring a value of zero.</p>
+
 </section>
 
 <section name="Deprecated proprietary API">

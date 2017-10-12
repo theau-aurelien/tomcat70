@@ -23,6 +23,7 @@ import static org.junit.Assert.assertTrue;
 import org.junit.Assert;
 import org.junit.Test;
 
+import org.apache.catalina.Wrapper;
 import org.apache.catalina.core.StandardContext;
 import org.apache.catalina.startup.Tomcat;
 import org.apache.catalina.startup.TomcatBaseTest;
@@ -123,21 +124,19 @@ public class TestELInJsp extends TomcatBaseTest {
         assertEcho(result, "00-hello world");
         assertEcho(result, "01-hello 'world");
         assertEcho(result, "02-hello \"world");
-        assertEcho(result, "03-hello world");
-        assertEcho(result, "04-hello 'world");
-        assertEcho(result, "05-hello \"world");
-        assertEcho(result, "06-hello world");
-        assertEcho(result, "07-hello 'world");
-        assertEcho(result, "08-hello \"world");
-        assertEcho(result, "09-hello world");
-        assertEcho(result, "10-hello 'world");
+        assertEcho(result, "03-hello \"world");
+        assertEcho(result, "04-hello world");
+        assertEcho(result, "05-hello 'world");
+        assertEcho(result, "06-hello 'world");
+        assertEcho(result, "07-hello \"world");
+        assertEcho(result, "08-hello world");
+        assertEcho(result, "09-hello 'world");
+        assertEcho(result, "10-hello \"world");
         assertEcho(result, "11-hello \"world");
         assertEcho(result, "12-hello world");
         assertEcho(result, "13-hello 'world");
-        assertEcho(result, "14-hello \"world");
-        assertEcho(result, "15-hello world");
-        assertEcho(result, "16-hello 'world");
-        assertEcho(result, "17-hello \"world");
+        assertEcho(result, "14-hello 'world");
+        assertEcho(result, "15-hello \"world");
     }
 
     @Test
@@ -170,16 +169,25 @@ public class TestELInJsp extends TomcatBaseTest {
         assertEcho(result, "01-${1+1}");
         assertEcho(result, "02-\\${1+1}");
         assertEcho(result, "03-\\\\${1+1}");
-        assertEcho(result, "04-2");
-        assertEcho(result, "05-${1+1}");
-        assertEcho(result, "06-\\2");
-        assertEcho(result, "07-\\${1+1}");
-        assertEcho(result, "08-\\\\2");
-        assertEcho(result, "09-2");
-        assertEcho(result, "10-#{1+1}");
-        assertEcho(result, "11-\\2");
-        assertEcho(result, "12-\\#{1+1}");
-        assertEcho(result, "13-\\\\2");
+        assertEcho(result, "04-$500");
+        // Inside an EL literal '\' is only used to escape '\', ''' and '"'
+        assertEcho(result, "05-\\$");
+        assertEcho(result, "06-\\${");
+        assertEcho(result, "10-2");
+        assertEcho(result, "11-${1+1}");
+        assertEcho(result, "12-\\2");
+        assertEcho(result, "13-\\${1+1}");
+        assertEcho(result, "14-\\\\2");
+        assertEcho(result, "15-$500");
+        assertEcho(result, "16-\\$");
+        assertEcho(result, "17-\\${");
+        assertEcho(result, "20-2");
+        assertEcho(result, "21-#{1+1}");
+        assertEcho(result, "22-\\2");
+        assertEcho(result, "23-\\#{1+1}");
+        assertEcho(result, "24-\\\\2");
+        assertEcho(result, "25-\\#");
+        assertEcho(result, "26-\\#{");
 
         res = getUrl("http://localhost:" + getPort() + "/test/bug45nnn/bug45451c.jsp");
         result = res.toString();
@@ -190,16 +198,18 @@ public class TestELInJsp extends TomcatBaseTest {
         assertEcho(result, "01-\\${1+1}");
         assertEcho(result, "02-\\\\${1+1}");
         assertEcho(result, "03-\\\\\\${1+1}");
-        assertEcho(result, "04-${1+1}");
-        assertEcho(result, "05-\\${1+1}");
-        assertEcho(result, "06-\\${1+1}");
-        assertEcho(result, "07-\\\\${1+1}");
-        assertEcho(result, "08-\\\\${1+1}");
-        assertEcho(result, "09-#{1+1}");
-        assertEcho(result, "10-\\#{1+1}");
-        assertEcho(result, "11-\\#{1+1}");
-        assertEcho(result, "12-\\\\#{1+1}");
-        assertEcho(result, "13-\\\\#{1+1}");
+        assertEcho(result, "04-\\$500");
+        assertEcho(result, "10-${1+1}");
+        assertEcho(result, "11-\\${1+1}");
+        assertEcho(result, "12-\\${1+1}");
+        assertEcho(result, "13-\\\\${1+1}");
+        assertEcho(result, "14-\\\\${1+1}");
+        assertEcho(result, "15-\\$500");
+        assertEcho(result, "20-#{1+1}");
+        assertEcho(result, "21-\\#{1+1}");
+        assertEcho(result, "22-\\#{1+1}");
+        assertEcho(result, "23-\\\\#{1+1}");
+        assertEcho(result, "24-\\\\#{1+1}");
 
         res = getUrl("http://localhost:" + getPort() + "/test/bug45nnn/bug45451d.jspx");
         result = res.toString();
@@ -209,16 +219,18 @@ public class TestELInJsp extends TomcatBaseTest {
         assertEcho(result, "01-${1+1}");
         assertEcho(result, "02-\\${1+1}");
         assertEcho(result, "03-\\\\${1+1}");
-        assertEcho(result, "04-2");
-        assertEcho(result, "05-${1+1}");
-        assertEcho(result, "06-\\${1+1}");
-        assertEcho(result, "07-\\\\${1+1}");
-        assertEcho(result, "08-\\\\\\${1+1}");
-        assertEcho(result, "09-2");
-        assertEcho(result, "10-#{1+1}");
-        assertEcho(result, "11-\\#{1+1}");
-        assertEcho(result, "12-\\\\#{1+1}");
-        assertEcho(result, "13-\\\\\\#{1+1}");
+        assertEcho(result, "04-$500");
+        assertEcho(result, "10-2");
+        assertEcho(result, "11-${1+1}");
+        assertEcho(result, "12-\\${1+1}");
+        assertEcho(result, "13-\\\\${1+1}");
+        assertEcho(result, "14-\\\\\\${1+1}");
+        assertEcho(result, "15-$500");
+        assertEcho(result, "20-2");
+        assertEcho(result, "21-#{1+1}");
+        assertEcho(result, "22-\\#{1+1}");
+        assertEcho(result, "23-\\\\#{1+1}");
+        assertEcho(result, "24-\\\\\\#{1+1}");
 
         res = getUrl("http://localhost:" + getPort() + "/test/bug45nnn/bug45451e.jsp");
         result = res.toString();
@@ -229,16 +241,18 @@ public class TestELInJsp extends TomcatBaseTest {
         assertEcho(result, "01-${1+1}");
         assertEcho(result, "02-\\${1+1}");
         assertEcho(result, "03-\\\\${1+1}");
-        assertEcho(result, "04-2");
-        assertEcho(result, "05-${1+1}");
-        assertEcho(result, "06-\\2");
-        assertEcho(result, "07-\\${1+1}");
-        assertEcho(result, "08-\\\\2");
-        assertEcho(result, "09-#{1+1}");
-        assertEcho(result, "10-\\#{1+1}");
-        assertEcho(result, "11-\\#{1+1}");
-        assertEcho(result, "12-\\\\#{1+1}");
-        assertEcho(result, "13-\\\\#{1+1}");
+        assertEcho(result, "04-$500");
+        assertEcho(result, "10-2");
+        assertEcho(result, "11-${1+1}");
+        assertEcho(result, "12-\\2");
+        assertEcho(result, "13-\\${1+1}");
+        assertEcho(result, "14-\\\\2");
+        assertEcho(result, "15-$500");
+        assertEcho(result, "20-#{1+1}");
+        assertEcho(result, "21-\\#{1+1}");
+        assertEcho(result, "22-\\#{1+1}");
+        assertEcho(result, "23-\\\\#{1+1}");
+        assertEcho(result, "24-\\\\#{1+1}");
     }
 
     @Test
@@ -358,18 +372,41 @@ public class TestELInJsp extends TomcatBaseTest {
     }
 
     @Test
-    public void testELMisc() throws Exception {
+    public void testELMiscNoQuoteAttributeEL() throws Exception {
+        doTestELMisc(false);
+    }
+
+    @Test
+    public void testELMiscWithQuoteAttributeEL() throws Exception {
+        doTestELMisc(true);
+    }
+
+    private void doTestELMisc(boolean quoteAttributeEL) throws Exception {
         Tomcat tomcat = getTomcatInstance();
 
-        File appDir =
-            new File("test/webapp-3.0");
-        // app dir is relative to server home
-        tomcat.addWebapp(null, "/test", appDir.getAbsolutePath());
+        // Create the context (don't use addWebapp as we want to modify the
+        // JSP Servlet settings).
+        File appDir = new File("test/webapp-3.0");
+        StandardContext ctxt = (StandardContext) tomcat.addContext(
+                null, "/test", appDir.getAbsolutePath());
+
+        // Configure the defaults and then tweak the JSP servlet settings
+        // Note: Min value for maxLoadedJsps is 2
+        Tomcat.initWebappDefaults(ctxt);
+        Wrapper w = (Wrapper) ctxt.findChild("jsp");
+
+        String jspName;
+        if (quoteAttributeEL) {
+            jspName = "/test/el-misc-with-quote-attribute-el.jsp";
+            w.addInitParameter("quoteAttributeEL", "true");
+        } else {
+            jspName = "/test/el-misc-no-quote-attribute-el.jsp";
+            w.addInitParameter("quoteAttributeEL", "false");
+        }
 
         tomcat.start();
 
-        ByteChunk res = getUrl("http://localhost:" + getPort() +
-                "/test/el-misc.jsp");
+        ByteChunk res = getUrl("http://localhost:" + getPort() + jspName);
         String result = res.toString();
         assertEcho(result, "00-\\\\\\\"${'hello world'}");
         assertEcho(result, "01-\\\\\\\"\\${'hello world'}");
@@ -382,13 +419,13 @@ public class TestELInJsp extends TomcatBaseTest {
         assertEcho(result, "08-a2z");
         assertEcho(result, "09-az2");
         assertEcho(result, "10-${'foo'}bar");
-        assertEcho(result, "11-\"}");
+        assertEcho(result, "11-\\\"}");
         assertEcho(result, "12-foo\\bar\\baz");
         assertEcho(result, "13-foo\\bar\\baz");
         assertEcho(result, "14-foo\\bar\\baz");
         assertEcho(result, "15-foo\\bar\\baz");
         assertEcho(result, "16-foo\\bar\\baz");
-        assertEcho(result, "17-foo\\bar\\baz");
+        assertEcho(result, "17-foo\\&apos;bar&apos;\\&quot;baz&quot;");
     }
 
     @Test
@@ -485,6 +522,41 @@ public class TestELInJsp extends TomcatBaseTest {
 
         String result = res.toString();
         assertEcho(result, "00-OK");
+    }
+
+
+    @Test
+    public void testBug56612() throws Exception {
+        Tomcat tomcat = getTomcatInstance();
+
+        File appDir = new File("test/webapp-3.0");
+        // app dir is relative to server home
+        tomcat.addWebapp(null, "/test", appDir.getAbsolutePath());
+
+        tomcat.start();
+
+        ByteChunk res = getUrl("http://localhost:" + getPort() +
+                "/test/bug5nnnn/bug56612.jsp");
+
+        String result = res.toString();
+        Assert.assertTrue(result.contains("00-''"));
+    }
+
+
+    @Test
+    public void testBug60431() throws Exception {
+        Tomcat tomcat = getTomcatInstance();
+
+        File appDir = new File("test/webapp-3.0");
+        // app dir is relative to server home
+        tomcat.addWebapp(null, "/test", appDir.getAbsolutePath());
+
+        tomcat.start();
+
+        ByteChunk res = getUrl("http://localhost:" + getPort() + "/test/bug6nnnn/bug60431.jsp");
+        String result = res.toString();
+        assertEcho(result, "01-OK");
+        assertEcho(result, "02-OK");
     }
 
 

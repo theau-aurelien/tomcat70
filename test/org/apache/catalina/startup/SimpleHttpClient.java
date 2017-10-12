@@ -46,16 +46,18 @@ public abstract class SimpleHttpClient {
     public static final String LF = "\n";
     public static final String CRLF = CR + LF;
 
-    public static final String INFO_100 = "HTTP/1.1 100";
-    public static final String OK_200 = "HTTP/1.1 200";
-    public static final String REDIRECT_302 = "HTTP/1.1 302";
-    public static final String FAIL_400 = "HTTP/1.1 400";
-    public static final String FAIL_404 = "HTTP/1.1 404";
-    public static final String TIMEOUT_408 = "HTTP/1.1 408";
-    public static final String FAIL_413 = "HTTP/1.1 413";
+    public static final String INFO_100 = "HTTP/1.1 100 ";
+    public static final String OK_200 = "HTTP/1.1 200 ";
+    public static final String REDIRECT_302 = "HTTP/1.1 302 ";
+    public static final String FAIL_400 = "HTTP/1.1 400 ";
+    public static final String FORBIDDEN_403 = "HTTP/1.1 403 ";
+    public static final String FAIL_404 = "HTTP/1.1 404 ";
+    public static final String TIMEOUT_408 = "HTTP/1.1 408 ";
+    public static final String FAIL_413 = "HTTP/1.1 413 ";
+    public static final String FAIL_417 = "HTTP/1.1 417 ";
     public static final String FAIL_50X = "HTTP/1.1 50";
-    public static final String FAIL_500 = "HTTP/1.1 500";
-    public static final String FAIL_501 = "HTTP/1.1 501";
+    public static final String FAIL_500 = "HTTP/1.1 500 ";
+    public static final String FAIL_501 = "HTTP/1.1 501 ";
 
     private static final String CONTENT_LENGTH_HEADER_PREFIX =
             "Content-Length: ";
@@ -98,7 +100,7 @@ public abstract class SimpleHttpClient {
     private String responseBody;
     private List<String> bodyUriElements = null;
 
-    protected void setPort(int thePort) {
+    public void setPort(int thePort) {
         port = thePort;
     }
 
@@ -383,6 +385,10 @@ public abstract class SimpleHttpClient {
 
         useContinue = false;
 
+        resetResponse();
+    }
+
+    public void resetResponse() {
         responseLine = null;
         responseHeaders = new ArrayList<String>();
         responseBody = null;
@@ -404,6 +410,10 @@ public abstract class SimpleHttpClient {
         return getResponseLine().startsWith(FAIL_400);
     }
 
+    public boolean isResponse403() {
+        return getResponseLine().startsWith(FORBIDDEN_403);
+    }
+
     public boolean isResponse404() {
         return getResponseLine().startsWith(FAIL_404);
     }
@@ -414,6 +424,10 @@ public abstract class SimpleHttpClient {
 
     public boolean isResponse413() {
         return getResponseLine().startsWith(FAIL_413);
+    }
+
+    public boolean isResponse417() {
+        return getResponseLine().startsWith(FAIL_417);
     }
 
     public boolean isResponse50x() {

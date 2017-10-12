@@ -17,8 +17,6 @@
 
 package org.apache.tomcat.util.net.jsse;
 
-import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
@@ -61,6 +59,9 @@ import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509KeyManager;
 
+import org.apache.tomcat.util.compat.JreCompat;
+import org.apache.tomcat.util.compat.JreVendor;
+import org.apache.tomcat.util.file.ConfigFileLoader;
 import org.apache.tomcat.util.net.AbstractEndpoint;
 import org.apache.tomcat.util.net.Constants;
 import org.apache.tomcat.util.net.SSLUtil;
@@ -69,7 +70,7 @@ import org.apache.tomcat.util.res.StringManager;
 
 /**
  * SSL server socket factory. It <b>requires</b> a valid RSA key and
- * JSSE.<br/>
+ * JSSE.<br>
  * keytool -genkey -alias tomcat -keyalg RSA</br>
  * Use "changeit" as password (this is the default we use).
  *
@@ -87,13 +88,8 @@ public class JSSESocketFactory implements ServerSocketFactory, SSLUtil {
     private static final StringManager sm =
         StringManager.getManager("org.apache.tomcat.util.net.jsse.res");
 
-    private static final boolean RFC_5746_SUPPORTED;
-
-    private static final String[] DEFAULT_SERVER_PROTOCOLS;
-    private static final String[] DEFAULT_SERVER_CIPHER_SUITES;
-
     // Defaults - made public where re-used
-    private static final String defaultProtocol = "TLS";
+    private static final String defaultProtocol = Constants.SSL_PROTO_TLS;
     private static final String defaultKeystoreType = "JKS";
     private static final String defaultKeystoreFile
         = System.getProperty("user.home") + "/.keystore";
@@ -102,47 +98,11 @@ public class JSSESocketFactory implements ServerSocketFactory, SSLUtil {
     private static final String ALLOW_ALL_SUPPORTED_CIPHERS = "ALL";
     public static final String DEFAULT_KEY_PASS = "changeit";
 
-    static {
-        boolean result = false;
-        SSLContext context;
-        String[] ciphers = null;
-        String[] protocols = null;
-        try {
-            context = SSLContext.getInstance("TLS");
-            context.init(null, null, null);
-            SSLServerSocketFactory ssf = context.getServerSocketFactory();
-            String supportedCiphers[] = ssf.getSupportedCipherSuites();
-            for (String cipher : supportedCiphers) {
-                if ("TLS_EMPTY_RENEGOTIATION_INFO_SCSV".equals(cipher)) {
-                    result = true;
-                    break;
-                }
-            }
+    private AbstractEndpoint<?> endpoint;
 
-            // There is no API to obtain the default server protocols and cipher
-            // suites. Having inspected the OpenJDK code there the same results
-            // can be achieved via the standard API but there is no guarantee
-            // that every JVM implementation determines the defaults the same
-            // way. Therefore the defaults are determined by creating a server
-            // socket and requested the configured values.
-
-            SSLServerSocket socket = (SSLServerSocket) ssf.createServerSocket();
-            ciphers = socket.getEnabledCipherSuites();
-            protocols = socket.getEnabledProtocols();
-        } catch (NoSuchAlgorithmException e) {
-            // Assume no RFC 5746 support
-        } catch (KeyManagementException e) {
-            // Assume no RFC 5746 support
-        } catch (IOException e) {
-            // Unable to determine default ciphers/protocols so use none
-        }
-        RFC_5746_SUPPORTED = result;
-        DEFAULT_SERVER_CIPHER_SUITES = ciphers;
-        DEFAULT_SERVER_PROTOCOLS = protocols;
-    }
-
-
-    private AbstractEndpoint endpoint;
+    private final boolean rfc5746Supported;
+    private final String[] defaultServerProtocols;
+    private final String[] defaultServerCipherSuites;
 
     protected SSLServerSocketFactory sslProxy = null;
     protected String[] enabledCiphers;
@@ -160,9 +120,123 @@ public class JSSESocketFactory implements ServerSocketFactory, SSLUtil {
     protected boolean wantClientAuth    = false;
 
 
-    public JSSESocketFactory (AbstractEndpoint endpoint) {
+    public JSSESocketFactory (AbstractEndpoint<?> endpoint) {
         this.endpoint = endpoint;
+
+        String sslProtocol = endpoint.getSslProtocol();
+        if (sslProtocol == null) {
+            sslProtocol = defaultProtocol;
+        }
+
+        SSLContext context;
+        try {
+             context = SSLContext.getInstance(sslProtocol);
+             context.init(null,  null,  null);
+        } catch (NoSuchAlgorithmException e) {
+            // This is fatal for the connector so throw an exception to prevent
+            // it from starting
+            throw new IllegalArgumentException(e);
+        } catch (KeyManagementException e) {
+            // This is fatal for the connector so throw an exception to prevent
+            // it from starting
+            throw new IllegalArgumentException(e);
+        }
+
+        // Supported cipher suites aren't accessible directly from the
+        // SSLContext so use the SSL server socket factory
+        SSLServerSocketFactory ssf = context.getServerSocketFactory();
+        String supportedCiphers[] = ssf.getSupportedCipherSuites();
+        boolean found = false;
+        for (String cipher : supportedCiphers) {
+            if ("TLS_EMPTY_RENEGOTIATION_INFO_SCSV".equals(cipher)) {
+                found = true;
+                break;
+            }
+        }
+        rfc5746Supported = found;
+
+        // There is no standard way to determine the default protocols and
+        // cipher suites so create a server socket to see what the defaults are
+        SSLServerSocket socket;
+        try {
+            socket = (SSLServerSocket) ssf.createServerSocket();
+        } catch (IOException e) {
+            // This is very likely to be fatal but there is a slim chance that
+            // the JSSE implementation just doesn't like creating unbound
+            // sockets so allow the code to proceed.
+            defaultServerCipherSuites = new String[0];
+            defaultServerProtocols = new String[0];
+            log.warn(sm.getString("jsse.noDefaultCiphers", endpoint.getName()));
+            log.warn(sm.getString("jsse.noDefaultProtocols", endpoint.getName()));
+            return;
+        }
+
+        try {
+            // Many of the default ciphers supported by older JRE versions are
+            // now considered insecure. This code attempts to filter them out
+            List<String> filteredCiphers = new ArrayList<String>();
+            for (String cipher : socket.getEnabledCipherSuites()) {
+                // Remove export ciphers - FREAK
+                if (cipher.toUpperCase(Locale.ENGLISH).contains("EXP")) {
+                    log.debug(sm.getString("jsse.excludeDefaultCipher", cipher));
+                    continue;
+                }
+                // Remove DES ciphers
+                if (cipher.toUpperCase(Locale.ENGLISH).contains("_DES_")) {
+                    log.debug(sm.getString("jsse.excludeDefaultCipher", cipher));
+                    continue;
+                }
+                // Remove RC4 ciphers
+                if (cipher.toUpperCase(Locale.ENGLISH).contains("_RC4_")) {
+                    log.debug(sm.getString("jsse.excludeDefaultCipher", cipher));
+                    continue;
+                }
+                // Remove DHE ciphers unless running on Java 8 or above 
+                if (!JreCompat.isJre8Available() &&
+                        cipher.toUpperCase(Locale.ENGLISH).contains("_DHE_")) {
+                    log.debug(sm.getString("jsse.excludeDefaultCipher", cipher));
+                    continue;
+                }
+                // Remove kRSA ciphers when running on Java 7 or above. Can't
+                // remove them for Java 6 since they are likely to be the only
+                // ones left
+                if (JreCompat.isJre7Available() &&
+                        (cipher.toUpperCase(Locale.ENGLISH).startsWith("TLS_RSA_") ||
+                         cipher.toUpperCase(Locale.ENGLISH).startsWith("SSL_RSA_"))) {
+                    log.debug(sm.getString("jsse.excludeDefaultCipher", cipher));
+                    continue;
+                }
+                filteredCiphers.add(cipher);
+            }
+    
+            defaultServerCipherSuites = filteredCiphers.toArray(new String[filteredCiphers.size()]);
+            if (defaultServerCipherSuites.length == 0) {
+                log.warn(sm.getString("jsse.noDefaultCiphers", endpoint.getName()));
+            }
+
+            // Filter out all the SSL protocols (SSLv2 and SSLv3) from the defaults
+            // since they are no longer considered secure
+            List<String> filteredProtocols = new ArrayList<String>();
+            for (String protocol : socket.getEnabledProtocols()) {
+                if (protocol.toUpperCase(Locale.ENGLISH).contains("SSL")) {
+                    log.debug(sm.getString("jsse.excludeDefaultProtocol", protocol));
+                    continue;
+                }
+                filteredProtocols.add(protocol);
+            }
+            defaultServerProtocols = filteredProtocols.toArray(new String[filteredProtocols.size()]);
+            if (defaultServerProtocols.length == 0) {
+                log.warn(sm.getString("jsse.noDefaultProtocols", endpoint.getName()));
+            }
+        } finally {
+            try {
+                socket.close();
+            } catch (IOException e) {
+                log.warn(sm.getString("jsse.exceptionOnClose"), e);
+            }
+        }
     }
+
 
     @Override
     public ServerSocket createSocket (int port)
@@ -216,7 +290,7 @@ public class JSSESocketFactory implements ServerSocketFactory, SSLUtil {
         if (session.getCipherSuite().equals("SSL_NULL_WITH_NULL_NULL"))
             throw new IOException("SSL handshake failed. Ciper suite in SSL Session is SSL_NULL_WITH_NULL_NULL");
 
-        if (!allowUnsafeLegacyRenegotiation && !RFC_5746_SUPPORTED) {
+        if (!allowUnsafeLegacyRenegotiation && !rfc5746Supported) {
             // Prevent further handshakes by removing all cipher suites
             ((SSLSocket) sock).setEnabledCipherSuites(new String[0]);
         }
@@ -231,7 +305,7 @@ public class JSSESocketFactory implements ServerSocketFactory, SSLUtil {
         }
         if ((requestedCiphersStr == null)
                 || (requestedCiphersStr.trim().length() == 0)) {
-            return DEFAULT_SERVER_CIPHER_SUITES;
+            return defaultServerCipherSuites;
         }
 
         List<String> requestedCiphers = new ArrayList<String>();
@@ -242,11 +316,27 @@ public class JSSESocketFactory implements ServerSocketFactory, SSLUtil {
             }
         }
         if (requestedCiphers.isEmpty()) {
-            return DEFAULT_SERVER_CIPHER_SUITES;
+            return defaultServerCipherSuites;
         }
         List<String> ciphers = new ArrayList<String>(requestedCiphers);
-        ciphers.retainAll(Arrays.asList(context.getSupportedSSLParameters()
-                .getCipherSuites()));
+        String[] supportedCipherSuiteArray = context.getSupportedSSLParameters().getCipherSuites();
+        // The IBM JRE will accept cipher suites names SSL_xxx or TLS_xxx but
+        // only returns the SSL_xxx form for supported cipher suites. Therefore
+        // need to filter the requested cipher suites using both forms with an
+        // IBM JRE.
+        List<String> supportedCipherSuiteList;
+        if (JreVendor.IS_IBM_JVM) {
+            supportedCipherSuiteList = new ArrayList<String>(supportedCipherSuiteArray.length * 2);
+            for (String name : supportedCipherSuiteArray) {
+                supportedCipherSuiteList.add(name);
+                if (name.startsWith("SSL")) {
+                    supportedCipherSuiteList.add("TLS" + name.substring(3));
+                }
+            }
+        } else {
+            supportedCipherSuiteList = Arrays.asList(supportedCipherSuiteArray);
+        }
+        ciphers.retainAll(supportedCipherSuiteList);
 
         if (ciphers.isEmpty()) {
             log.warn(sm.getString("jsse.requested_ciphers_not_supported",
@@ -377,12 +467,7 @@ public class JSSESocketFactory implements ServerSocketFactory, SSLUtil {
             }
             if(!("PKCS11".equalsIgnoreCase(type) ||
                     "".equalsIgnoreCase(path))) {
-                File keyStoreFile = new File(path);
-                if (!keyStoreFile.isAbsolute()) {
-                    keyStoreFile = new File(System.getProperty(
-                            Constants.CATALINA_BASE_PROP), path);
-                }
-                istream = new FileInputStream(keyStoreFile);
+                istream = ConfigFileLoader.getInputStream(path);
             }
 
             char[] storePass = null;
@@ -664,16 +749,11 @@ public class JSSESocketFactory implements ServerSocketFactory, SSLUtil {
     protected Collection<? extends CRL> getCRLs(String crlf)
         throws IOException, CRLException, CertificateException {
 
-        File crlFile = new File(crlf);
-        if( !crlFile.isAbsolute() ) {
-            crlFile = new File(
-                    System.getProperty(Constants.CATALINA_BASE_PROP), crlf);
-        }
         Collection<? extends CRL> crls = null;
         InputStream is = null;
         try {
             CertificateFactory cf = CertificateFactory.getInstance("X.509");
-            is = new FileInputStream(crlFile);
+            is = ConfigFileLoader.getInputStream(crlf);
             crls = cf.generateCRLs(is);
         } catch(IOException iex) {
             throw iex;
@@ -697,7 +777,7 @@ public class JSSESocketFactory implements ServerSocketFactory, SSLUtil {
     public String[] getEnableableProtocols(SSLContext context) {
         String[] requestedProtocols = endpoint.getSslEnabledProtocolsArray();
         if ((requestedProtocols == null) || (requestedProtocols.length == 0)) {
-            return DEFAULT_SERVER_PROTOCOLS;
+            return defaultServerProtocols;
         }
 
         List<String> protocols = new ArrayList<String>(
@@ -736,6 +816,27 @@ public class JSSESocketFactory implements ServerSocketFactory, SSLUtil {
     }
 
     /**
+     * Configures SSLEngine to honor cipher suites ordering based upon
+     * endpoint configuration.
+     *
+     * @throws InvalidAlgorithmParameterException If the runtime JVM doesn't
+     *         support this setting.
+     */
+    protected void configureUseServerCipherSuitesOrder(SSLServerSocket socket) {
+        String useServerCipherSuitesOrderStr = endpoint
+                .getUseServerCipherSuitesOrder().trim();
+
+        // Only use this feature if the user explicitly requested its use.
+        if(!"".equals(useServerCipherSuitesOrderStr)) {
+            boolean useServerCipherSuitesOrder =
+                    ("true".equalsIgnoreCase(useServerCipherSuitesOrderStr)
+                            || "yes".equalsIgnoreCase(useServerCipherSuitesOrderStr));
+            JreCompat jreCompat = JreCompat.getInstance();
+            jreCompat.setUseServerCipherSuitesOrder(socket, useServerCipherSuitesOrder);
+        }
+    }
+
+    /**
      * Configures the given SSL server socket with the requested cipher suites,
      * protocol versions, and need for client authentication
      */
@@ -749,6 +850,7 @@ public class JSSESocketFactory implements ServerSocketFactory, SSLUtil {
         // we don't know if client auth is needed -
         // after parsing the request we may re-handshake
         configureClientAuth(socket);
+        configureUseServerCipherSuitesOrder(socket);
     }
 
     /**

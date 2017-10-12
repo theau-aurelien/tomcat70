@@ -44,7 +44,7 @@ import org.apache.juli.logging.LogFactory;
  * <p>When using this Filter, it is strongly recommended that the
  * <code>org.apache.catalina.filter.RequestDumperFilter</code> logger is
  * directed to a dedicated file and that the
- * <code>org.apache.juli.VerbatimFormmater</code> is used.</p>
+ * <code>org.apache.juli.VerbatimFormatter</code> is used.</p>
  *
  * @author Craig R. McClanahan
  */
@@ -108,7 +108,7 @@ public class RequestDumperFilter implements Filter {
         
         doLog(" characterEncoding", request.getCharacterEncoding());
         doLog("     contentLength",
-                Integer.valueOf(request.getContentLength()).toString());
+                Integer.toString(request.getContentLength()));
         doLog("       contentType", request.getContentType());
         
         if (hRequest == null) {
@@ -186,7 +186,7 @@ public class RequestDumperFilter implements Filter {
         doLog("            scheme", request.getScheme());
         doLog("        serverName", request.getServerName());
         doLog("        serverPort",
-                Integer.valueOf(request.getServerPort()).toString());
+                Integer.toString(request.getServerPort()));
         
         if (hRequest == null) {
             doLog("       servletPath", NON_HTTP_REQ_MSG);
@@ -235,7 +235,7 @@ public class RequestDumperFilter implements Filter {
             doLog("        remoteUser", NON_HTTP_RES_MSG);
         } else {
             doLog("            status",
-                    Integer.valueOf(hResponse.getStatus()).toString());
+                    Integer.toString(hResponse.getStatus()));
         }
 
         doLog("END TIME          ", getTimestamp());

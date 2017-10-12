@@ -78,10 +78,10 @@ class Parser implements TagConstants {
     /* System property that controls if the strict white space rules are
      * applied.
      */ 
-    private static final boolean STRICT_WHITESPACE = Boolean.valueOf(
+    private static final boolean STRICT_WHITESPACE = Boolean.parseBoolean(
             System.getProperty(
                     "org.apache.jasper.compiler.Parser.STRICT_WHITESPACE",
-                    "true")).booleanValue();
+                    "true"));
     /**
      * The constructor
      */
@@ -198,6 +198,8 @@ class Parser implements TagConstants {
         if (qName == null)
             return false;
 
+        boolean ignoreEL = pageInfo.isELIgnored();
+
         // Determine prefix and local name components
         String localName = qName;
         String uri = "";
@@ -222,11 +224,14 @@ class Parser implements TagConstants {
             err.jspError(reader.mark(), "jsp.error.attribute.noquote");
 
         String watchString = "";
-        if (reader.matches("<%="))
+        if (reader.matches("<%=")) {
             watchString = "%>";
+            // Can't embed EL in a script expression
+            ignoreEL = true;
+        }
         watchString = watchString + quote;
 
-        String attrValue = parseAttributeValue(watchString);
+        String attrValue = parseAttributeValue(watchString, ignoreEL);
         attrs.addAttribute(uri, localName, qName, "CDATA", attrValue);
         return true;
     }
@@ -257,9 +262,12 @@ class Parser implements TagConstants {
      * RTAttributeValueDouble ::= ((QuotedChar - '"')* - ((QuotedChar-'"')'%>"')
      * ('%>"' | TRANSLATION_ERROR)
      */
-    private String parseAttributeValue(String watch) throws JasperException {
+    private String parseAttributeValue(String watch, boolean ignoreEL) throws JasperException {
+        boolean quoteAttributeEL = ctxt.getOptions().getQuoteAttributeEL();
         Mark start = reader.mark();
-        Mark stop = reader.skipUntilIgnoreEsc(watch);
+        // In terms of finding the end of the value, quoting EL is equivalent to
+        // ignoring it.
+        Mark stop = reader.skipUntilIgnoreEsc(watch, ignoreEL || quoteAttributeEL);
         if (stop == null) {
             err.jspError(start, "jsp.error.attribute.unterminated", watch);
         }
@@ -275,7 +283,8 @@ class Parser implements TagConstants {
             
             ret = AttributeParser.getUnquoted(reader.getText(start, stop),
                     quote, isElIgnored,
-                    pageInfo.isDeferredSyntaxAllowedAsLiteral());
+                    pageInfo.isDeferredSyntaxAllowedAsLiteral(),
+                    quoteAttributeEL);
         } catch (IllegalArgumentException iae) {
             err.jspError(start, iae.getMessage());
         }
@@ -732,31 +741,15 @@ class Parser implements TagConstants {
     }
 
     /*
-     * ELExpressionBody (following "${" to first unquoted "}") // XXX add formal
-     * production and confirm implementation against it, // once it's decided
+     * ELExpressionBody (following "${" to first unquoted "}")
      */
     private void parseELExpression(Node parent, char type)
             throws JasperException {
         start = reader.mark();
-        Mark last = null;
-        boolean singleQuoted = false, doubleQuoted = false;
-        int currentChar;
-        do {
-            // XXX could move this logic to JspReader
-            last = reader.mark(); // XXX somewhat wasteful
-            currentChar = reader.nextChar();
-            if (currentChar == '\\' && (singleQuoted || doubleQuoted)) {
-                // skip character following '\' within quotes
-                reader.nextChar();
-                currentChar = reader.nextChar();
-            }
-            if (currentChar == -1)
-                err.jspError(start, "jsp.error.unterminated", type + "{");
-            if (currentChar == '"' && !singleQuoted)
-                doubleQuoted = !doubleQuoted;
-            if (currentChar == '\'' && !doubleQuoted)
-                singleQuoted = !singleQuoted;
-        } while (currentChar != '}' || (singleQuoted || doubleQuoted));
+        Mark last = reader.skipELExpression();
+        if (last == null) {
+            err.jspError(start, "jsp.error.unterminated", type + "{");
+        }
 
         new Node.ELExpression(type, reader.getText(start, last), start, parent);
     }
@@ -1279,6 +1272,10 @@ class Parser implements TagConstants {
     /*
      * Parse for a template text string until '<' or "${" or "#{" is encountered,
      * recognizing escape sequences "<\%", "\$", and "\#".
+     *
+     * Note: JSP uses '\$' as an escape for '$' and '\#' for '#' whereas EL uses
+     *       '\${' for '${' and '\#{' for '#{'. We are processing JSP template
+     *       test here so the JSP escapes apply.
      */
     private void parseTemplateText(Node parent) throws JasperException {
 
@@ -1286,49 +1283,47 @@ class Parser implements TagConstants {
             return;
 
         CharArrayWriter ttext = new CharArrayWriter();
-        // Output the first character
+
         int ch = reader.nextChar();
-        if (ch == '\\') {
-            reader.pushChar();
-        } else {
-            ttext.write(ch);
+        while (ch != -1) {
+            if (ch == '<') {
+                // Check for "<\%"
+                if (reader.peekChar(0) == '\\' && reader.peekChar(1) == '%') {
+                    ttext.write(ch);
+                    // Swallow the \
+                    reader.nextChar();
+                    ttext.write(reader.nextChar());
+                } else {
+                    if (ttext.size() == 0) {
+                        ttext.write(ch);
+                    } else {
+                        reader.pushChar();
+                        break;
+                    }
+                }
+            } else if (ch == '\\' && !pageInfo.isELIgnored()) {
+                int next = reader.peekChar(0);
+                if (next == '$' || next == '#') {
+                    ttext.write(reader.nextChar());
+                } else {
+                    ttext.write(ch);
+                }
+            } else if ((ch == '$' || ch == '#' && !pageInfo.isDeferredSyntaxAllowedAsLiteral()) &&
+                    !pageInfo.isELIgnored()) {
+                if (reader.peekChar(0) == '{') {
+                    reader.pushChar();
+                    break;
+                } else {
+                    ttext.write(ch);
+                }
+            } else {
+                ttext.write(ch);
+            }
+            ch = reader.nextChar();
         }
 
-        while (reader.hasMoreInput()) {
-            int prev = ch;
-            ch = reader.nextChar();
-            if (ch == '<') {
-                reader.pushChar();
-                break;
-            } else if ((ch == '$' || ch == '#') && !pageInfo.isELIgnored()) {
-                if (!reader.hasMoreInput()) {
-                    ttext.write(ch);
-                    break;
-                }
-                if (reader.nextChar() == '{') {
-                    reader.pushChar();
-                    reader.pushChar();
-                    break;
-                }
-                ttext.write(ch);
-                reader.pushChar();
-                continue;
-            } else if (ch == '\\') {
-                if (!reader.hasMoreInput()) {
-                    ttext.write('\\');
-                    break;
-                }
-                char next = (char) reader.peekChar();
-                // Looking for \% or \$ or \#
-                if ((prev == '<' && next == '%') ||
-                        ((next == '$' || next == '#') &&
-                                !pageInfo.isELIgnored())) {
-                    ch = reader.nextChar();
-                }
-            }
-            ttext.write(ch);
-        }
-        new Node.TemplateText(ttext.toString(), start, parent);
+        @SuppressWarnings("unused")
+        Node unused = new Node.TemplateText(ttext.toString(), start, parent);
     }
 
     /*
@@ -1344,8 +1339,8 @@ class Parser implements TagConstants {
                         "&lt;jsp:text&gt;");
             }
             CharArrayWriter ttext = new CharArrayWriter();
-            while (reader.hasMoreInput()) {
-                int ch = reader.nextChar();
+            int ch = reader.nextChar();
+            while (ch != -1) {
                 if (ch == '<') {
                     // Check for <![CDATA[
                     if (!reader.matches("![CDATA[")) {
@@ -1359,40 +1354,39 @@ class Parser implements TagConstants {
                     String text = reader.getText(start, stop);
                     ttext.write(text, 0, text.length());
                 } else if (ch == '\\') {
-                    if (!reader.hasMoreInput()) {
-                        ttext.write('\\');
-                        break;
-                    }
-                    ch = reader.nextChar();
-                    if (ch != '$' && ch != '#') {
+                    int next = reader.peekChar();
+                    if (next == '$' || next =='#') {
+                        ttext.write(reader.nextChar());
+                    } else {
                         ttext.write('\\');
                     }
-                    ttext.write(ch);
                 } else if (ch == '$' || ch == '#') {
-                    if (!reader.hasMoreInput()) {
+                    if (reader.peekChar() == '{') {
+                        // Swallow the '{'
+                        reader.nextChar();
+                        
+                        // Create a template text node
+                        @SuppressWarnings("unused")
+                        Node unused = new Node.TemplateText(
+                                ttext.toString(), start, parent);
+    
+                        // Mark and parse the EL expression and create its node:
+                        parseELExpression(parent, (char) ch);
+    
+                        start = reader.mark();
+                        ttext.reset();
+                    } else {
                         ttext.write(ch);
-                        break;
                     }
-                    if (reader.nextChar() != '{') {
-                        ttext.write(ch);
-                        reader.pushChar();
-                        continue;
-                    }
-                    // Create a template text node
-                    new Node.TemplateText(ttext.toString(), start, parent);
-
-                    // Mark and parse the EL expression and create its node:
-                    start = reader.mark();
-                    parseELExpression(parent, (char) ch);
-
-                    start = reader.mark();
-                    ttext = new CharArrayWriter();
                 } else {
                     ttext.write(ch);
                 }
+                ch = reader.nextChar();
             }
 
-            new Node.TemplateText(ttext.toString(), start, parent);
+            @SuppressWarnings("unused")
+            Node unused =
+                    new Node.TemplateText(ttext.toString(), start, parent);
 
             if (!reader.hasMoreInput()) {
                 err.jspError(start, "jsp.error.unterminated",

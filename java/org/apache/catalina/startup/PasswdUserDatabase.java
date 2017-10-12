@@ -5,19 +5,16 @@
  * The ASF licenses this file to You under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with
  * the License.  You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-
 package org.apache.catalina.startup;
-
 
 import java.io.BufferedReader;
 import java.io.FileReader;
@@ -25,6 +22,9 @@ import java.io.IOException;
 import java.util.Enumeration;
 import java.util.Hashtable;
 
+import org.apache.juli.logging.Log;
+import org.apache.juli.logging.LogFactory;
+import org.apache.naming.StringManager;
 
 /**
  * Concrete implementation of the <strong>UserDatabase</code> interface
@@ -32,25 +32,10 @@ import java.util.Hashtable;
  *
  * @author Craig R. McClanahan
  */
-public final class PasswdUserDatabase
-    implements UserDatabase {
+public final class PasswdUserDatabase implements UserDatabase {
 
-
-    // --------------------------------------------------------- Constructors
-
-
-    /**
-     * Initialize a new instance of this user database component.
-     */
-    public PasswdUserDatabase() {
-
-        super();
-
-    }
-
-
-    // --------------------------------------------------- Instance Variables
-
+    private static final Log log = LogFactory.getLog(PasswdUserDatabase.class);
+    private static final StringManager sm = StringManager.getManager(PasswdUserDatabase.class);
 
     /**
      * The pathname of the Unix password file.
@@ -70,17 +55,12 @@ public final class PasswdUserDatabase
     private UserConfig userConfig = null;
 
 
-    // ----------------------------------------------------------- Properties
-
-
     /**
      * Return the UserConfig listener with which we are associated.
      */
     @Override
     public UserConfig getUserConfig() {
-
-        return (this.userConfig);
-
+        return userConfig;
     }
 
 
@@ -91,14 +71,9 @@ public final class PasswdUserDatabase
      */
     @Override
     public void setUserConfig(UserConfig userConfig) {
-
         this.userConfig = userConfig;
         init();
-
     }
-
-
-    // ------------------------------------------------------- Public Methods
 
 
     /**
@@ -108,9 +83,7 @@ public final class PasswdUserDatabase
      */
     @Override
     public String getHome(String user) {
-
         return homes.get(user);
-
     }
 
 
@@ -119,78 +92,37 @@ public final class PasswdUserDatabase
      */
     @Override
     public Enumeration<String> getUsers() {
-
-        return (homes.keys());
-
+        return homes.keys();
     }
-
-
-    // ------------------------------------------------------ Private Methods
 
 
     /**
      * Initialize our set of users and home directories.
      */
     private void init() {
-
         BufferedReader reader = null;
         try {
-
             reader = new BufferedReader(new FileReader(PASSWORD_FILE));
-
-            while (true) {
-
-                // Accumulate the next line
-                StringBuilder buffer = new StringBuilder();
-                while (true) {
-                    int ch = reader.read();
-                    if ((ch < 0) || (ch == '\n'))
-                        break;
-                    buffer.append((char) ch);
-                }
-                String line = buffer.toString();
-                if (line.length() < 1)
-                    break;
-
-                // Parse the line into constituent elements
-                int n = 0;
-                String tokens[] = new String[7];
-                for (int i = 0; i < tokens.length; i++)
-                    tokens[i] = null;
-                while (n < tokens.length) {
-                    String token = null;
-                    int colon = line.indexOf(':');
-                    if (colon >= 0) {
-                        token = line.substring(0, colon);
-                        line = line.substring(colon + 1);
-                    } else {
-                        token = line;
-                        line = "";
-                    }
-                    tokens[n++] = token;
-                }
-
-                // Add this user and corresponding directory
-                if ((tokens[0] != null) && (tokens[5] != null))
+            String line = reader.readLine();
+            while (line != null) {
+                String tokens[] = line.split(":");
+                // Need non-zero 1st and 6th tokens
+                if (tokens.length > 5 && tokens[0].length() > 0 && tokens[5].length() > 0) {
+                    // Add this user and corresponding directory
                     homes.put(tokens[0], tokens[5]);
-
+                }
+                line = reader.readLine();
             }
-
-            reader.close();
-            reader = null;
-
         } catch (Exception e) {
+            log.warn(sm.getString("passwdUserDatabase.readFail"), e);
+        } finally {
             if (reader != null) {
                 try {
                     reader.close();
-                } catch (IOException f) {
+                } catch (IOException e) {
                     // Ignore
                 }
-                reader = null;
             }
         }
-
     }
-
-
 }

@@ -36,7 +36,7 @@ import org.apache.tomcat.util.net.SocketWrapper;
  * Processor is single threaded and specific to stream-based protocols,
  * will not fit Jk protocols like JNI.
  */
-public class AjpNioProtocol extends AbstractAjpProtocol {
+public class AjpNioProtocol extends AbstractAjpProtocol<NioChannel> {
     
     
     private static final Log log = LogFactory.getLog(AjpNioProtocol.class);
@@ -97,7 +97,7 @@ public class AjpNioProtocol extends AbstractAjpProtocol {
         }
 
         @Override
-        protected AbstractProtocol getProtocol() {
+        protected AbstractProtocol<NioChannel> getProtocol() {
             return proto;
         }
 
@@ -162,6 +162,10 @@ public class AjpNioProtocol extends AbstractAjpProtocol {
             processor.recycle(isSocketClosing);
             recycledProcessors.offer(processor);
             if (addToPoller) {
+                // The only time this method is called with addToPoller == true
+                // is when the socket is in keep-alive so set the appropriate
+                // timeout.
+                socket.setTimeout(getProtocol().getKeepAliveTimeout());
                 socket.getSocket().getPoller().add(socket.getSocket());
             }
         }
@@ -171,9 +175,13 @@ public class AjpNioProtocol extends AbstractAjpProtocol {
         protected AjpNioProcessor createProcessor() {
             AjpNioProcessor processor = new AjpNioProcessor(proto.packetSize, (NioEndpoint)proto.endpoint);
             processor.setAdapter(proto.adapter);
+            processor.setAjpFlush(proto.getAjpFlush());
             processor.setTomcatAuthentication(proto.tomcatAuthentication);
+            processor.setTomcatAuthorization(proto.getTomcatAuthorization());
             processor.setRequiredSecret(proto.requiredSecret);
+            processor.setKeepAliveTimeout(proto.getKeepAliveTimeout());
             processor.setClientCertProvider(proto.getClientCertProvider());
+            processor.setMaxCookieCount(proto.getMaxCookieCount());
             register(processor);
             return processor;
         }

@@ -86,7 +86,7 @@ public class JspCompilationContext {
 
     protected JspRuntimeContext rctxt;
 
-    protected volatile int removed = 0;
+    protected volatile boolean removed = false;
 
     protected URLClassLoader jspLoader;
     protected URL baseUrl;
@@ -111,7 +111,7 @@ public class JspCompilationContext {
 
         this.baseURI = jspUri.substring(0, jspUri.lastIndexOf('/') + 1);
         // hack fix for resolveRelativeURI
-        if (baseURI == null) {
+        if (baseURI.isEmpty()) {
             baseURI = "/";
         } else if (baseURI.charAt(0) != '/') {
             // strip the base slash since it will be combined with the
@@ -186,6 +186,11 @@ public class JspCompilationContext {
         return jspLoader;
     }
 
+    public void clearJspLoader() {
+        jspLoader = null;
+    }
+
+
     /** ---------- Input/Output  ---------- */
 
     /**
@@ -227,7 +232,8 @@ public class JspCompilationContext {
             }
         }
         if (jspCompiler == null) {
-            throw new IllegalStateException(Localizer.getMessage("jsp.error.compiler"));
+            throw new IllegalStateException(Localizer.getMessage("jsp.error.compiler.config",
+                    options.getCompilerClassName(), options.getCompiler()));
         }
         jspCompiler.init(this, jsw);
         return jspCompiler;
@@ -630,17 +636,14 @@ public class JspCompilationContext {
     // ==================== Removal ====================
 
     public void incrementRemoved() {
-        if (removed == 0 && rctxt != null) {
+        if (removed == false && rctxt != null) {
             rctxt.removeWrapper(jspUri);
         }
-        removed++;
+        removed = true;
     }
 
     public boolean isRemoved() {
-        if (removed > 0 ) {
-            return true;
-        }
-        return false;
+        return removed;
     }
 
     // ==================== Compile and reload ====================
@@ -694,7 +697,7 @@ public class JspCompilationContext {
             throw new JasperException(Localizer.getMessage("jsp.error.unable.compile"),
                                       ex);
         }
-        removed = 0;
+        removed = false;
         return servletClass;
     }
 

@@ -55,7 +55,8 @@ public class ProxyConnection extends JdbcInterceptor {
         this.pool = pool;
     }
 
-    protected ProxyConnection(ConnectionPool parent, PooledConnection con, boolean useEquals) throws SQLException {
+    protected ProxyConnection(ConnectionPool parent, PooledConnection con,
+            boolean useEquals) {
         pool = parent;
         connection = con;
         setUseEquals(useEquals);
@@ -67,7 +68,7 @@ public class ProxyConnection extends JdbcInterceptor {
         this.connection = con;
     }
 
-    public boolean isWrapperFor(Class<?> iface) throws SQLException {
+    public boolean isWrapperFor(Class<?> iface) {
         if (iface == XAConnection.class && connection.getXAConnection()!=null) {
             return true;
         } else {
@@ -103,7 +104,7 @@ public class ProxyConnection extends JdbcInterceptor {
             return this.toString();
         } else if (compare(GETCONNECTION_VAL,method) && connection!=null) {
             return connection.getConnection();
-        } else if (method.getDeclaringClass().equals(XAConnection.class)) {
+        } else if (method.getDeclaringClass().isAssignableFrom(XAConnection.class)) {
             try {
                 return method.invoke(connection.getXAConnection(),args);
             }catch (Throwable t) {

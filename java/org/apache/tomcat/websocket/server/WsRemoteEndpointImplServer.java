@@ -31,6 +31,7 @@ import org.apache.coyote.http11.upgrade.AbstractServletOutputStream;
 import org.apache.juli.logging.Log;
 import org.apache.juli.logging.LogFactory;
 import org.apache.tomcat.util.res.StringManager;
+import org.apache.tomcat.websocket.Transformation;
 import org.apache.tomcat.websocket.WsRemoteEndpointImplBase;
 
 /**
@@ -42,8 +43,7 @@ public class WsRemoteEndpointImplServer extends WsRemoteEndpointImplBase {
 
     private static final StringManager sm =
             StringManager.getManager(Constants.PACKAGE_NAME);
-    private static final Log log =
-            LogFactory.getLog(WsHttpUpgradeHandler.class);
+    private static final Log log = LogFactory.getLog(WsRemoteEndpointImplServer.class);
 
     private static final Queue<OnResultRunnable> onResultRunnables =
             new ConcurrentLinkedQueue<OnResultRunnable>();
@@ -165,6 +165,13 @@ public class WsRemoteEndpointImplServer extends WsRemoteEndpointImplBase {
     }
 
 
+    @Override
+    protected void setTransformation(Transformation transformation) {
+        // Overridden purely so it is visible to other classes in this package
+        super.setTransformation(transformation);
+    }
+
+
     /**
      *
      * @param t             The throwable associated with any error that
@@ -182,6 +189,7 @@ public class WsRemoteEndpointImplServer extends WsRemoteEndpointImplBase {
         // message.
         SendHandler sh = handler;
         handler = null;
+        buffers = null;
         if (sh != null) {
             if (useDispatch) {
                 OnResultRunnable r = onResultRunnables.poll();

@@ -32,6 +32,7 @@ import java.util.EventListener;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import javax.servlet.Filter;
 import javax.servlet.FilterRegistration;
@@ -62,15 +63,15 @@ public class ApplicationContextFacade implements ServletContext {
     /**
      * Cache Class object used for reflection.
      */
-    private HashMap<String,Class<?>[]> classCache;
-    
-    
+    private final Map<String,Class<?>[]> classCache;
+
+
     /**
      * Cache method object.
      */
-    private HashMap<String,Method> objectCache;
-    
-    
+    private final Map<String,Method> objectCache;
+
+
     // ----------------------------------------------------------- Constructors
 
 
@@ -83,9 +84,9 @@ public class ApplicationContextFacade implements ServletContext {
     public ApplicationContextFacade(ApplicationContext context) {
         super();
         this.context = context;
-        
+
         classCache = new HashMap<String,Class<?>[]>();
-        objectCache = new HashMap<String,Method>();
+        objectCache = new ConcurrentHashMap<String,Method>();
         initClassCache();
     }
     
@@ -777,7 +778,7 @@ public class ApplicationContextFacade implements ServletContext {
     /**
      * Use reflection to invoke the requested method. Cache the method object 
      * to speed up the process
-     * @param appContext The AppliationContext object on which the method
+     * @param appContext The ApplicationContext object on which the method
      *                   will be invoked
      * @param methodName The method to call.
      * @param params The arguments passed to the called method.
@@ -835,7 +836,7 @@ public class ApplicationContextFacade implements ServletContext {
     /**
      * Executes the method of the specified <code>ApplicationContext</code>
      * @param method The method object to be invoked.
-     * @param context The AppliationContext object on which the method
+     * @param context The ApplicationContext object on which the method
      *                   will be invoked
      * @param params The arguments passed to the called method.
      */

@@ -25,7 +25,7 @@
 # ----- Version Control Flags -----
 version.major=7
 version.minor=0
-version.build=55
+version.build=83
 version.patch=0
 version.suffix=-dev
 
@@ -40,9 +40,15 @@ execute.test.apr=true
 test.haltonfailure=false
 # Activate AccessLog during testing
 test.accesslog=false
+# Display the tests output on the console
+test.verbose=true
 
 # Note the Cobertura code coverage tool is GPLv2 licensed
 test.cobertura=false
+
+# Some platforms (e.g. OSX El Capitan) require IPv4 to be the default for the
+# multicast tests to work
+java.net.preferIPv4Stack=false
 
 # Location of Java7 JDK
 #java.7.home=/path/to/java7/jdk
@@ -57,15 +63,13 @@ trydownload.httpusecaches=true
 # Please note this path must be absolute, not relative,
 # as it is referenced with different working directory
 # contexts by the various build scripts.
-base.path=/usr/share/java
-#base.path=C:/path/to/the/repository
-#base.path=/usr/local
+base.path=${user.home}/tomcat-build-libs
 
 compile.source=1.6
 compile.target=1.6
 compile.debug=true
 
-base-apache.loc.1=http://www.apache.org/dist
+base-apache.loc.1=http://www.apache.org/dyn/closer.lua?action=download&filename=
 base-apache.loc.2=http://archive.apache.org/dist
 base-commons.loc.1=${base-apache.loc.1}/commons
 base-commons.loc.2=${base-apache.loc.2}/commons
@@ -127,9 +131,10 @@ wsdl4j-lib.home=${base.path}/wsdl4j-${wsdl4j-lib.version}
 wsdl4j-lib.loc=${base-maven.loc}/wsdl4j/wsdl4j/${wsdl4j-lib.version}/wsdl4j-${wsdl4j-lib.version}.jar
 wsdl4j-lib.jar=${wsdl4j-lib.home}/wsdl4j-${wsdl4j-lib.version}.jar
 
-# ----- Eclipse JDT, version 3.2 or later -----#
-jdt.version=P20140317-1600
-jdt.release=P20140317-1600
+# ----- Eclipse JDT, version 4.4 or later -----#
+# See https://wiki.apache.org/tomcat/JDTCoreBatchCompiler before updating
+jdt.version=4.4.2
+jdt.release=R-4.4.2-201502041700
 jdt.home=${base.path}/ecj-${jdt.version}
 jdt.jar=${jdt.home}/ecj-${jdt.version}.jar
 # The download will be moved to the archive area eventually. We are taking care of that in advance.
@@ -137,7 +142,7 @@ jdt.loc.1=http://archive.eclipse.org/eclipse/downloads/drops4/${jdt.release}/ecj
 jdt.loc.2=http://download.eclipse.org/eclipse/downloads/drops4/${jdt.release}/ecj-${jdt.version}.jar
 
 # ----- Tomcat native library -----
-tomcat-native.version=1.1.30
+tomcat-native.version=1.2.14
 tomcat-native.home=${base.path}/tomcat-native-${tomcat-native.version}
 tomcat-native.tar.gz=${tomcat-native.home}/tomcat-native.tar.gz
 tomcat-native.loc.1=${base-tomcat.loc.1}/tomcat-connectors/native/${tomcat-native.version}/source/tomcat-native-${tomcat-native.version}-src.tar.gz
@@ -157,13 +162,17 @@ commons-pool.home=${base.path}/commons-pool-${commons-pool.version}-src
 commons-pool-src.loc.1=${base-commons.loc.1}/pool/source/commons-pool-${commons-pool.version}-src.tar.gz
 commons-pool-src.loc.2=${base-commons.loc.2}/pool/source/commons-pool-${commons-pool.version}-src.tar.gz
 
-# ----- NSIS, version 2.0 or later -----
-nsis.home=${base.path}/nsis-2.46
+# ----- NSIS, version 3.0 or later -----
+nsis.version=3.01
+nsis.home=${base.path}/nsis-${nsis.version}
 nsis.exe=${nsis.home}/makensis.exe
-nsis.installoptions.dll=${nsis.home}/Plugins/InstallOptions.dll
-nsis.nsexec.dll=${nsis.home}/Plugins/nsExec.dll
-nsis.nsisdl.dll=${nsis.home}/Plugins/NSISdl.dll
-nsis.loc=${base-sf.loc}/nsis/nsis-2.46.zip
+nsis.arch.dir=x86-unicode/
+nsis.installoptions.dll=${nsis.home}/Plugins/${nsis.arch.dir}InstallOptions.dll
+nsis.nsexec.dll=${nsis.home}/Plugins/${nsis.arch.dir}nsExec.dll
+nsis.nsisdl.dll=${nsis.home}/Plugins/${nsis.arch.dir}NSISdl.dll
+nsis.system.dll=${nsis.home}/Plugins/${nsis.arch.dir}System.dll
+nsis.nsdialogs.dll=${nsis.home}/Plugins/${nsis.arch.dir}nsDialogs.dll
+nsis.loc=${base-sf.loc}/nsis/nsis-${nsis.version}.zip
 
 # ----- Commons Daemon, version 1.0-Alpha or later -----
 commons-daemon.version=1.0.15
@@ -172,13 +181,13 @@ commons-daemon.jar=${commons-daemon.home}/commons-daemon-${commons-daemon.versio
 commons-daemon.native.win.home=${commons-daemon.home}/windows
 commons-daemon.native.win.mgr.exe=${commons-daemon.native.win.home}/prunmgr.exe
 commons-daemon.native.src.tgz=${commons-daemon.home}/commons-daemon-${commons-daemon.version}-native-src.tar.gz
-commons-daemon.native.win.zip=${commons-daemon.home}/commons-daemon-${commons-daemon.version}-bin-windows.zip
+commons-daemon.native.win.zip=${commons-daemon.home}/commons-daemon-${commons-daemon.version}-bin-windows-signed.zip
 commons-daemon.bin.loc.1=${base-commons.loc.1}/daemon/binaries/commons-daemon-${commons-daemon.version}-bin.tar.gz
 commons-daemon.bin.loc.2=${base-commons.loc.2}/daemon/binaries/commons-daemon-${commons-daemon.version}-bin.tar.gz
 commons-daemon.native.src.loc.1=${base-commons.loc.1}/daemon/source/commons-daemon-${commons-daemon.version}-native-src.tar.gz
 commons-daemon.native.src.loc.2=${base-commons.loc.2}/daemon/source/commons-daemon-${commons-daemon.version}-native-src.tar.gz
-commons-daemon.native.win.loc.1=${base-commons.loc.1}/daemon/binaries/windows/commons-daemon-${commons-daemon.version}-bin-windows.zip
-commons-daemon.native.win.loc.2=${base-commons.loc.2}/daemon/binaries/windows/commons-daemon-${commons-daemon.version}-bin-windows.zip
+commons-daemon.native.win.loc.1=${base-commons.loc.1}/daemon/binaries/windows/commons-daemon-${commons-daemon.version}-bin-windows-signed.zip
+commons-daemon.native.win.loc.2=${base-commons.loc.2}/daemon/binaries/windows/commons-daemon-${commons-daemon.version}-bin-windows-signed.zip
 
 # ----- JUnit Unit Test Suite, version 4.11 or later -----
 junit.version=4.11
@@ -192,10 +201,29 @@ hamcrest.home=${base.path}/hamcrest-${hamcrest.version}
 hamcrest.jar=${hamcrest.home}/hamcrest-core-${hamcrest.version}.jar
 hamcrest.loc=${base-maven.loc}/org/hamcrest/hamcrest-core/${hamcrest.version}/hamcrest-core-${hamcrest.version}.jar
 
-# ----- Checkstyle, version 5.1 or later -----
-checkstyle.version=5.6
+# ----- EasyMock, version 3.2 or later -----
+easymock.version=3.2
+easymock.home=${base.path}/easymock-${easymock.version}
+easymock.loc=${base-sf.loc}/easymock/easymock-${easymock.version}.zip
+easymock.jar=${easymock.home}/easymock-${easymock.version}.jar
+
+# ----- cglib, used by EasyMock, version 2.2 or later -----
+cglib.version=2.2.3
+cglib.home=${base.path}/cglib-${cglib.version}
+cglib.loc=${base-sf.loc}/cglib/cglib-nodep-${cglib.version}.jar
+cglib.jar=${cglib.home}/cglib-nodep-${cglib.version}.jar
+
+# ----- objenesis, used by EasyMock, version 1.2 or later -----
+objenesis.version=1.2
+objenesis.home=${base.path}/objenesis-${objenesis.version}
+objenesis.loc=https://bintray.com/easymock/distributions/download_file?file_path=objenesis-${objenesis.version}-bin.zip
+objenesis.jar=${objenesis.home}/objenesis-${objenesis.version}.jar
+
+# ----- Checkstyle, version 6.0 or later -----
+# Limited to 6.1.1 since that is the latest release that supports Java 6
+checkstyle.version=6.1.1
 checkstyle.home=${base.path}/checkstyle-${checkstyle.version}
-checkstyle.loc=${base-sf.loc}/checkstyle/checkstyle-${checkstyle.version}-bin.zip
+checkstyle.loc=${base-sf.loc}/checkstyle/checkstyle/${checkstyle.version}/checkstyle-${checkstyle.version}-all.jar
 checkstyle.jar=${checkstyle.home}/checkstyle-${checkstyle.version}-all.jar
 
 # ----- JSON Libraries (for bayeux module) -----

@@ -105,7 +105,7 @@ public class XercesParser{
                 versionClass.getMethod("getVersion", (Class[]) null); 
             String version = (String)method.invoke(null, (Object[]) null);
             versionNumber = version.substring( "Xerces-J".length() , 
-                                               version.lastIndexOf(".") ); 
+                                               version.lastIndexOf('.') ); 
         } catch (Exception ex){
             // Do nothing.
         }
@@ -129,7 +129,7 @@ public class XercesParser{
 
         if (versionNumber == null){
             versionNumber = getXercesVersion();
-            version = new Float( versionNumber ).floatValue();
+            version = Float.parseFloat(versionNumber);
         }
 
         // Note: 2.2 is completely broken (with XML Schema). 

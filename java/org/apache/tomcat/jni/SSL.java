@@ -72,7 +72,9 @@ public final class SSL {
     public static final int SSL_PROTOCOL_SSLV2 = (1<<0);
     public static final int SSL_PROTOCOL_SSLV3 = (1<<1);
     public static final int SSL_PROTOCOL_TLSV1 = (1<<2);
-    public static final int SSL_PROTOCOL_ALL   = (SSL_PROTOCOL_SSLV3|SSL_PROTOCOL_TLSV1);
+    public static final int SSL_PROTOCOL_TLSV1_1 = (1<<3);
+    public static final int SSL_PROTOCOL_TLSV1_2 = (1<<4);
+    public static final int SSL_PROTOCOL_ALL   = (SSL_PROTOCOL_TLSV1 | SSL_PROTOCOL_TLSV1_1 | SSL_PROTOCOL_TLSV1_2);
 
     /*
      * Define the SSL verify levels
@@ -137,10 +139,23 @@ public final class SSL {
     public static final int SSL_OP_NO_SSLv2                         = 0x01000000;
     public static final int SSL_OP_NO_SSLv3                         = 0x02000000;
     public static final int SSL_OP_NO_TLSv1                         = 0x04000000;
+    public static final int SSL_OP_NO_TLSv1_2                       = 0x08000000;
+    public static final int SSL_OP_NO_TLSv1_1                       = 0x10000000;
 
-    /* The next flag deliberately changes the ciphertest, this is a check
-     * for the PKCS#1 attack */
+    public static final int SSL_OP_NO_TICKET                        = 0x00004000;
+
+    // SSL_OP_PKCS1_CHECK_1 and SSL_OP_PKCS1_CHECK_2 flags are unsupported
+    // in the current version of OpenSSL library. See ssl.h changes in commit
+    // 7409d7ad517650db332ae528915a570e4e0ab88b (30 Apr 2011) of OpenSSL.
+    /**
+     * @deprecated Unsupported in the current version of OpenSSL
+     */
+    @Deprecated
     public static final int SSL_OP_PKCS1_CHECK_1                    = 0x08000000;
+    /**
+     * @deprecated Unsupported in the current version of OpenSSL
+     */
+    @Deprecated
     public static final int SSL_OP_PKCS1_CHECK_2                    = 0x10000000;
     public static final int SSL_OP_NETSCAPE_CA_DN_BUG               = 0x20000000;
     public static final int SSL_OP_NETSCAPE_DEMO_CIPHER_CHANGE_BUG  = 0x40000000;
@@ -213,10 +228,10 @@ public final class SSL {
      * Add certificate chain number to that flag (0 ... verify depth)
      */
     public static final int SSL_INFO_CLIENT_CERT_CHAIN         = 0x0400;
-    /* Return OpenSSL version number */
+    /* Return OpenSSL version number (compile time version, if version < 1.1.0) */
     public static native int version();
 
-    /* Return OpenSSL version string */
+    /* Return OpenSSL version string (run time version) */
     public static native String versionString();
 
     /**
@@ -318,7 +333,7 @@ public final class SSL {
 
     /**
      * Generate temporary RSA key.
-     * <br />
+     * <br>
      * Index can be one of:
      * <PRE>
      * SSL_TMP_KEY_RSA_512
@@ -330,11 +345,15 @@ public final class SSL {
      * You can use a low priority thread to generate them on the fly.
      * @param idx temporary key index.
      */
+    /**
+     * @deprecated Only useful in combination with EXPORT Cipher
+     */
+    @Deprecated
     public static native boolean generateRSATempKey(int idx);
 
     /**
      * Load temporary DSA key from file
-     * <br />
+     * <br>
      * Index can be one of:
      * <PRE>
      * SSL_TMP_KEY_DH_512
@@ -345,6 +364,10 @@ public final class SSL {
      * @param idx temporary key index.
      * @param file File containing DH params.
      */
+    /**
+     * @deprecated Now automatically loaded from certificate file
+     */
+    @Deprecated
     public static native boolean loadDSATempKey(int idx, String file);
 
     /**

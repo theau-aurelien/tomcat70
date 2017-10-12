@@ -117,7 +117,7 @@ public class Socket {
 
     /**
      * Shutdown either reading, writing, or both sides of a socket.
-     * <br />
+     * <br>
      * This does not actually close the socket descriptor, it just
      *      controls which calls are still valid on the socket.
      * @param thesocket The socket to close
@@ -379,12 +379,19 @@ public class Socket {
      * @param buf The buffer to store the data in.
      * @param offset Offset in the byte buffer.
      * @param nbytes The number of bytes to read (-1) for full array.
-     * @return the number of bytes received.
+     * @return If &ge; 0, the return value is the number of bytes read. Note a
+     *         non-blocking read with no data current available will return
+     *         {@link Status#EAGAIN} and EOF will return {@link Status#APR_EOF}.
      */
     public static native int recvb(long sock, ByteBuffer buf,
                                    int offset, int nbytes);
     /**
-     * Read data from a network using internally set ByteBuffer
+     * Read data from a network using internally set ByteBuffer.
+     *
+     * @return If &gt; 0, the return value is the number of bytes read. If == 0,
+     *         the return value indicates EOF and if &lt; 0 the return value is the
+     *         error code. Note a non-blocking read with no data current
+     *         available will return {@link Status#EAGAIN} not zero.
      */
     public static native int recvbb(long sock,
                                     int offset, int nbytes);
@@ -480,10 +487,10 @@ public class Socket {
      * @param sock The socket to set up.
      * @param t Value for the timeout in microseconds.
      * <PRE>
-     * t > 0  -- read and write calls return APR_TIMEUP if specified time
+     * t &gt; 0  -- read and write calls return APR_TIMEUP if specified time
      *           elapses with no data read or written
      * t == 0 -- read and write calls never block
-     * t < 0  -- read and write calls block
+     * t &lt; 0  -- read and write calls block
      * </PRE>
      */
     public static native int timeoutSet(long sock, long t);
@@ -499,7 +506,7 @@ public class Socket {
     /**
      * Send a file from an open file descriptor to a socket, along with
      * optional headers and trailers.
-     * <br />
+     * <br>
      * This functions acts like a blocking write by default.  To change
      *         this behavior, use apr_socket_timeout_set() or the
      *         APR_SO_NONBLOCK socket option.

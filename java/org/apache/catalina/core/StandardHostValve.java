@@ -60,20 +60,19 @@ final class StandardHostValve extends ValveBase {
 
     private static final Log log = LogFactory.getLog(StandardHostValve.class);
 
-    protected static final boolean STRICT_SERVLET_COMPLIANCE;
+    static final boolean STRICT_SERVLET_COMPLIANCE;
 
-    protected static final boolean ACCESS_SESSION;
+    static final boolean ACCESS_SESSION;
 
     static {
         STRICT_SERVLET_COMPLIANCE = Globals.STRICT_SERVLET_COMPLIANCE;
-        
+
         String accessSession = System.getProperty(
                 "org.apache.catalina.core.StandardHostValve.ACCESS_SESSION");
         if (accessSession == null) {
             ACCESS_SESSION = STRICT_SERVLET_COMPLIANCE;
         } else {
-            ACCESS_SESSION =
-                Boolean.valueOf(accessSession).booleanValue();
+            ACCESS_SESSION = Boolean.parseBoolean(accessSession);
         }
     }
 
@@ -147,7 +146,7 @@ final class StandardHostValve extends ValveBase {
             if (Globals.IS_SECURITY_ENABLED) {
                 PrivilegedAction<Void> pa = new PrivilegedSetTccl(
                         context.getLoader().getClassLoader());
-                AccessController.doPrivileged(pa);                
+                AccessController.doPrivileged(pa);
             } else {
                 Thread.currentThread().setContextClassLoader
                         (context.getLoader().getClassLoader());
@@ -157,55 +156,59 @@ final class StandardHostValve extends ValveBase {
             request.setAsyncSupported(context.getPipeline().isAsyncSupported());
         }
 
-        // Don't fire listeners during async processing
-        // If a request init listener throws an exception, the request is
-        // aborted
-        boolean asyncAtStart = request.isAsync(); 
-        // An async error page may dispatch to another resource. This flag helps
-        // ensure an infinite error handling loop is not entered
-        boolean errorAtStart = response.isError();
-        if (asyncAtStart || context.fireRequestInitEvent(request)) {
+        boolean asyncAtStart = request.isAsync();
+        boolean asyncDispatching = request.isAsyncDispatching();
+        if (asyncAtStart || context.fireRequestInitEvent(request.getRequest())) {
 
-            // Ask this Context to process this request
+            // Ask this Context to process this request. Requests that are in
+            // async mode and are not being dispatched to this resource must be
+            // in error and have been routed here to check for application
+            // defined error pages.
             try {
-                context.getPipeline().getFirst().invoke(request, response);
+                if (!asyncAtStart || asyncDispatching) {
+                    context.getPipeline().getFirst().invoke(request, response);
+                } else {
+                    // Make sure this request/response is here because an error
+                    // report is required.
+                    if (!response.isErrorReportRequired()) {
+                        throw new IllegalStateException(sm.getString("standardHost.asyncStateError"));
+                    }
+                }
             } catch (Throwable t) {
                 ExceptionUtils.handleThrowable(t);
-                if (errorAtStart) {
-                    container.getLogger().error("Exception Processing " +
-                            request.getRequestURI(), t);
-                } else {
+                container.getLogger().error("Exception Processing " + request.getRequestURI(), t);
+                // If a new error occurred while trying to report a previous
+                // error allow the original error to be reported.
+                if (!response.isErrorReportRequired()) {
                     request.setAttribute(RequestDispatcher.ERROR_EXCEPTION, t);
                     throwable(request, response, t);
                 }
             }
-    
-            // If the request was async at the start and an error occurred then
-            // the async error handling will kick-in and that will fire the
-            // request destroyed event *after* the error handling has taken
-            // place
-            if (!(request.isAsync() || (asyncAtStart &&
-                    request.getAttribute(
-                            RequestDispatcher.ERROR_EXCEPTION) != null))) {
-                // Protect against NPEs if context was destroyed during a
-                // long running request.
-                if (context.getState().isAvailable()) {
-                    if (!errorAtStart) {
-                        // Error page processing
-                        response.setSuspended(false);
-    
-                        Throwable t = (Throwable) request.getAttribute(
-                                RequestDispatcher.ERROR_EXCEPTION);
-    
-                        if (t != null) {
-                            throwable(request, response, t);
-                        } else {
-                            status(request, response);
-                        }
-                    }
-    
-                    context.fireRequestDestroyEvent(request);
+
+            // Now that the request/response pair is back under container
+            // control lift the suspension so that the error handling can
+            // complete and/or the container can flush any remaining data
+            response.setSuspended(false);
+
+            Throwable t = (Throwable) request.getAttribute(RequestDispatcher.ERROR_EXCEPTION);
+
+            // Protect against NPEs if the context was destroyed during a
+            // long running request.
+            if (!context.getState().isAvailable()) {
+                return;
+            }
+
+            // Look for (and render if found) an application level error page
+            if (response.isErrorReportRequired()) {
+                if (t != null) {
+                    throwable(request, response, t);
+                } else {
+                    status(request, response);
                 }
+            }
+
+            if (!request.isAsync() && !asyncAtStart) {
+                context.fireRequestDestroyEvent(request.getRequest());
             }
         }
 
@@ -219,7 +222,7 @@ final class StandardHostValve extends ValveBase {
         if (Globals.IS_SECURITY_ENABLED) {
             PrivilegedAction<Void> pa = new PrivilegedSetTccl(
                     StandardHostValve.class.getClassLoader());
-            AccessController.doPrivileged(pa);                
+            AccessController.doPrivileged(pa);
         } else {
             Thread.currentThread().setContextClassLoader
                     (StandardHostValve.class.getClassLoader());
@@ -255,7 +258,7 @@ final class StandardHostValve extends ValveBase {
         // Ask this Context to process this request
         context.getPipeline().getFirst().event(request, response, event);
 
-        
+
         // Error page processing
         response.setSuspended(false);
 
@@ -314,7 +317,7 @@ final class StandardHostValve extends ValveBase {
             // Look for a default error page
             errorPage = context.findErrorPage(0);
         }
-        if (errorPage != null) {
+        if (errorPage != null && response.isErrorReportRequired()) {
             response.setAppCommitted(false);
             request.setAttribute(RequestDispatcher.ERROR_STATUS_CODE,
                               Integer.valueOf(statusCode));
@@ -336,8 +339,9 @@ final class StandardHostValve extends ValveBase {
             request.setAttribute(RequestDispatcher.ERROR_REQUEST_URI,
                                  request.getRequestURI());
             if (custom(request, response, errorPage)) {
+                response.setErrorReported();
                 try {
-                    response.flushBuffer();
+                    response.finishResponse();
                 } catch (ClientAbortException e) {
                     // Ignore
                 } catch (IOException e) {
@@ -390,30 +394,32 @@ final class StandardHostValve extends ValveBase {
         }
 
         if (errorPage != null) {
-            response.setAppCommitted(false);
-            request.setAttribute(Globals.DISPATCHER_REQUEST_PATH_ATTR,
-                    errorPage.getLocation());
-            request.setAttribute(Globals.DISPATCHER_TYPE_ATTR,
-                    DispatcherType.ERROR);
-            request.setAttribute(RequestDispatcher.ERROR_STATUS_CODE,
-                    new Integer(HttpServletResponse.SC_INTERNAL_SERVER_ERROR));
-            request.setAttribute(RequestDispatcher.ERROR_MESSAGE,
-                              throwable.getMessage());
-            request.setAttribute(RequestDispatcher.ERROR_EXCEPTION,
-                              realError);
-            Wrapper wrapper = request.getWrapper();
-            if (wrapper != null)
-                request.setAttribute(RequestDispatcher.ERROR_SERVLET_NAME,
-                                  wrapper.getName());
-            request.setAttribute(RequestDispatcher.ERROR_REQUEST_URI,
-                                 request.getRequestURI());
-            request.setAttribute(RequestDispatcher.ERROR_EXCEPTION_TYPE,
-                              realError.getClass());
-            if (custom(request, response, errorPage)) {
-                try {
-                    response.flushBuffer();
-                } catch (IOException e) {
-                    container.getLogger().warn("Exception Processing " + errorPage, e);
+            if (response.setErrorReported()) {
+                response.setAppCommitted(false);
+                request.setAttribute(Globals.DISPATCHER_REQUEST_PATH_ATTR,
+                        errorPage.getLocation());
+                request.setAttribute(Globals.DISPATCHER_TYPE_ATTR,
+                        DispatcherType.ERROR);
+                request.setAttribute(RequestDispatcher.ERROR_STATUS_CODE,
+                        Integer.valueOf(HttpServletResponse.SC_INTERNAL_SERVER_ERROR));
+                request.setAttribute(RequestDispatcher.ERROR_MESSAGE,
+                                  throwable.getMessage());
+                request.setAttribute(RequestDispatcher.ERROR_EXCEPTION,
+                                  realError);
+                Wrapper wrapper = request.getWrapper();
+                if (wrapper != null)
+                    request.setAttribute(RequestDispatcher.ERROR_SERVLET_NAME,
+                                      wrapper.getName());
+                request.setAttribute(RequestDispatcher.ERROR_REQUEST_URI,
+                                     request.getRequestURI());
+                request.setAttribute(RequestDispatcher.ERROR_EXCEPTION_TYPE,
+                                  realError.getClass());
+                if (custom(request, response, errorPage)) {
+                    try {
+                        response.finishResponse();
+                    } catch (IOException e) {
+                        container.getLogger().warn("Exception Processing " + errorPage, e);
+                    }
                 }
             }
         } else {
@@ -455,9 +461,15 @@ final class StandardHostValve extends ValveBase {
             RequestDispatcher rd =
                 servletContext.getRequestDispatcher(errorPage.getLocation());
 
+            if (rd == null) {
+                container.getLogger().error(
+                    sm.getString("standardHostValue.customStatusFailed", errorPage.getLocation()));
+                return false;
+            }
+
             if (response.isCommitted()) {
                 // Response is committed - including the error page is the
-                // best we can do 
+                // best we can do
                 rd.include(request.getRequest(), response.getResponse());
             } else {
                 // Reset the response (keeping the real error code and message)

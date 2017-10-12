@@ -14,8 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-
 package org.apache.catalina.session;
 
 /**
@@ -46,32 +44,20 @@ public final class PersistentManager extends PersistentManagerBase {
     /**
      * The descriptive name of this Manager implementation (for logging).
      */
-    protected static String name = "PersistentManager";
+    static String name = "PersistentManager";
 
 
     // ------------------------------------------------------------- Properties
 
-
-    /**
-     * Return descriptive information about this Manager implementation and
-     * the corresponding version number, in the format
-     * <code>&lt;description&gt;/&lt;version&gt;</code>.
-     */
     @Override
     public String getInfo() {
-
-        return (info);
-
+        return info;
     }
 
-    /**
-     * Return the descriptive short name of this Manager implementation.
-     */
+    
     @Override
     public String getName() {
-
-        return (name);
-
+        return name;
     }
  }
 

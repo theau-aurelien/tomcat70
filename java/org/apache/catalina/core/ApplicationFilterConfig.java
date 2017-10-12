@@ -58,7 +58,7 @@ public final class ApplicationFilterConfig implements FilterConfig, Serializable
 
     private static final long serialVersionUID = 1L;
 
-    protected static final StringManager sm =
+    static final StringManager sm =
         StringManager.getManager(Constants.Package);
 
     private static final org.apache.juli.logging.Log log =
@@ -90,11 +90,14 @@ public final class ApplicationFilterConfig implements FilterConfig, Serializable
      * @exception ServletException if thrown by the filter's init() method
      * @throws NamingException
      * @throws InvocationTargetException
+     * @throws SecurityException
+     * @throws NoSuchMethodException
+     * @throws IllegalArgumentException
      */
     ApplicationFilterConfig(Context context, FilterDef filterDef)
-        throws ClassCastException, ClassNotFoundException,
-               IllegalAccessException, InstantiationException,
-               ServletException, InvocationTargetException, NamingException {
+            throws ClassCastException, ClassNotFoundException, IllegalAccessException,
+            InstantiationException, ServletException, InvocationTargetException, NamingException,
+            IllegalArgumentException, NoSuchMethodException, SecurityException {
 
         super();
 
@@ -244,10 +247,13 @@ public final class ApplicationFilterConfig implements FilterConfig, Serializable
      * @exception ServletException if thrown by the filter's init() method
      * @throws NamingException
      * @throws InvocationTargetException
+     * @throws SecurityException
+     * @throws NoSuchMethodException
+     * @throws IllegalArgumentException
      */
-    Filter getFilter() throws ClassCastException, ClassNotFoundException,
-        IllegalAccessException, InstantiationException, ServletException,
-        InvocationTargetException, NamingException {
+    Filter getFilter() throws ClassCastException, ClassNotFoundException, IllegalAccessException,
+            InstantiationException, ServletException, InvocationTargetException, NamingException,
+            IllegalArgumentException, NoSuchMethodException, SecurityException {
 
         // Return the existing filter instance, if any
         if (this.filter != null)
@@ -300,8 +306,7 @@ public final class ApplicationFilterConfig implements FilterConfig, Serializable
 
         unregisterJMX();
         
-        if (this.filter != null)
-        {
+        if (this.filter != null) {
             try {
                 if (Globals.IS_SECURITY_ENABLED) {
                     try {
@@ -326,7 +331,9 @@ public final class ApplicationFilterConfig implements FilterConfig, Serializable
                     Throwable t = ExceptionUtils
                             .unwrapInvocationTargetException(e);
                     ExceptionUtils.handleThrowable(t);
-                    context.getLogger().error("ApplicationFilterConfig.preDestroy", t);
+                    context.getLogger().error(
+                            sm.getString("applicationFilterConfig.preDestroy",
+                                    filterDef.getFilterName(), filterDef.getFilterClass()), t);
                 }
             }
         }

@@ -36,22 +36,20 @@ import org.junit.Test;
 import org.apache.catalina.Context;
 import org.apache.catalina.servlets.DefaultServlet;
 import org.apache.catalina.startup.Tomcat;
-import org.apache.catalina.startup.TomcatBaseTest;
 import org.apache.tomcat.util.net.TesterSupport;
 import org.apache.tomcat.websocket.TesterMessageCountClient.BasicText;
 import org.apache.tomcat.websocket.TesterMessageCountClient.SleepingText;
 import org.apache.tomcat.websocket.TesterMessageCountClient.TesterProgrammaticEndpoint;
 
-public class TestWebSocketFrameClientSSL extends TomcatBaseTest {
+public class TestWebSocketFrameClientSSL extends WebSocketBaseTest {
 
 
     @Test
-    public void testConnectToServerEndpointSSL() throws Exception {
+    public void testConnectToServerEndpoint() throws Exception {
 
         Tomcat tomcat = getTomcatInstance();
-        // Must have a real docBase - just use temp
-        Context ctx =
-            tomcat.addContext("", System.getProperty("java.io.tmpdir"));
+        // No file system docBase required
+        Context ctx = tomcat.addContext("", null);
         ctx.addApplicationListener(TesterFirehoseServer.Config.class.getName());
         Tomcat.addServlet(ctx, "default", new DefaultServlet());
         ctx.addServletMapping("/", "default");
@@ -66,7 +64,7 @@ public class TestWebSocketFrameClientSSL extends TomcatBaseTest {
         ClientEndpointConfig clientEndpointConfig =
                 ClientEndpointConfig.Builder.create().build();
         URL truststoreUrl = this.getClass().getClassLoader().getResource(
-                "org/apache/tomcat/util/net/ca.jks");
+                TesterSupport.CA_JKS);
         File truststoreFile = new File(truststoreUrl.toURI());
         clientEndpointConfig.getUserProperties().put(
                 WsWebSocketContainer.SSL_TRUSTSTORE_PROPERTY,
@@ -104,12 +102,12 @@ public class TestWebSocketFrameClientSSL extends TomcatBaseTest {
         //      connector.
         Assume.assumeFalse(
                 "Skip this test on BIO. TODO: investigate options to make it pass with HTTP BIO connector",
-                getTomcatInstance().getConnector().getProtocol().equals("HTTP/1.1"));
+                getTomcatInstance().getConnector().getProtocolHandlerClassName().equals(
+                        "org.apache.coyote.http11.Http11Protocol"));
 
         Tomcat tomcat = getTomcatInstance();
-        // Must have a real docBase - just use temp
-        Context ctx =
-            tomcat.addContext("", System.getProperty("java.io.tmpdir"));
+        // No file system docBase required
+        Context ctx = tomcat.addContext("", null);
         ctx.addApplicationListener(TesterFirehoseServer.Config.class.getName());
         Tomcat.addServlet(ctx, "default", new DefaultServlet());
         ctx.addServletMapping("/", "default");
@@ -124,7 +122,7 @@ public class TestWebSocketFrameClientSSL extends TomcatBaseTest {
                 ClientEndpointConfig.Builder.create().build();
         clientEndpointConfig.getUserProperties().put(
                 WsWebSocketContainer.SSL_TRUSTSTORE_PROPERTY,
-                "test/org/apache/tomcat/util/net/ca.jks");
+                "test/" + TesterSupport.CA_JKS);
         Session wsSession = wsContainer.connectToServer(
                 TesterProgrammaticEndpoint.class,
                 clientEndpointConfig,
@@ -163,6 +161,9 @@ public class TestWebSocketFrameClientSSL extends TomcatBaseTest {
         if (openConnectionCount != 0) {
             Assert.fail("There are [" + openConnectionCount + "] connections still open");
         }
+
+        // Close the client session.
+        wsSession.close();
     }
 
 }

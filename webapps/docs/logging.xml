@@ -139,7 +139,7 @@
       or <code>GenericServlet.log(String)</code> are logged at the INFO level.
       The calls to <code>ServletContext.log(String, Throwable)</code> or
       <code>GenericServlet.log(String, Throwable)</code>
-      are logged at the ERROR level.
+      are logged at the SEVERE level.
     </p>
 
     </subsection>
@@ -282,6 +282,12 @@
       boolean value.</li>
       <li>The root logger can define its set of handlers using the
       <code>.handlers</code> property.</li>
+      <li> By default the log files will be kept on the file system forever.
+      This may be changed per handler using the
+      <code>handlerName.maxDays</code> property. If the specified value for the
+      property is <code>&lt;=0</code> then the log files will be kept on the
+      file system forever, otherwise they will be kept the specified maximum
+      days.</li>
   </ul>
   <p>
     There are several additional implementation classes, that can be used
@@ -475,7 +481,7 @@ log4j.logger.org.apache.catalina.core.ContainerBase.[Catalina].[localhost].[/hos
   INFO, HOST-MANAGER]]></source>
     <ol start="2">
         <li><a href="http://logging.apache.org/log4j">Download Log4J</a>
-        (v1.2 or later).</li>
+        (Tomcat requires v1.2.x).</li>
 
         <li><p>Download or build <code>tomcat-juli.jar</code> and
         <code>tomcat-juli-adapters.jar</code> that are available as an "extras"
@@ -483,7 +489,7 @@ log4j.logger.org.apache.catalina.core.ContainerBase.[Catalina].[localhost].[/hos
         documentation</a> for details.</p>
         <p>This <code>tomcat-juli.jar</code> differs from the default one. It
         contains the full Apache Commons Logging implementation and thus is
-        able to discover the presense of log4j and configure itself.</p>
+        able to discover the presence of log4j and configure itself.</p>
         </li>
 
         <li><p>If you want to configure Tomcat to use log4j globally:</p>

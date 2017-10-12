@@ -39,6 +39,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
 import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.naming.NamingException;
@@ -62,6 +63,7 @@ import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
 import javax.servlet.http.Part;
 
+import org.apache.catalina.Container;
 import org.apache.catalina.Context;
 import org.apache.catalina.Globals;
 import org.apache.catalina.Host;
@@ -74,7 +76,9 @@ import org.apache.catalina.core.ApplicationSessionCookieConfig;
 import org.apache.catalina.core.AsyncContextImpl;
 import org.apache.catalina.realm.GenericPrincipal;
 import org.apache.catalina.util.ParameterMap;
+import org.apache.catalina.util.RequestUtil;
 import org.apache.catalina.util.StringParser;
+import org.apache.catalina.util.URLEncoder;
 import org.apache.coyote.ActionCode;
 import org.apache.coyote.http11.upgrade.servlet31.HttpUpgradeHandler;
 import org.apache.juli.logging.Log;
@@ -83,9 +87,12 @@ import org.apache.tomcat.util.ExceptionUtils;
 import org.apache.tomcat.util.buf.B2CConverter;
 import org.apache.tomcat.util.buf.ByteChunk;
 import org.apache.tomcat.util.buf.MessageBytes;
+import org.apache.tomcat.util.buf.UDecoder;
+import org.apache.tomcat.util.compat.JreCompat;
 import org.apache.tomcat.util.http.Cookies;
 import org.apache.tomcat.util.http.FastHttpDateFormat;
 import org.apache.tomcat.util.http.Parameters;
+import org.apache.tomcat.util.http.Parameters.FailReason;
 import org.apache.tomcat.util.http.ServerCookie;
 import org.apache.tomcat.util.http.fileupload.FileItem;
 import org.apache.tomcat.util.http.fileupload.FileUploadBase;
@@ -95,6 +102,7 @@ import org.apache.tomcat.util.http.fileupload.disk.DiskFileItemFactory;
 import org.apache.tomcat.util.http.fileupload.servlet.ServletFileUpload;
 import org.apache.tomcat.util.http.fileupload.servlet.ServletRequestContext;
 import org.apache.tomcat.util.http.mapper.MappingData;
+import org.apache.tomcat.util.net.SSLSupport;
 import org.apache.tomcat.util.res.StringManager;
 import org.ietf.jgss.GSSCredential;
 import org.ietf.jgss.GSSException;
@@ -107,7 +115,7 @@ import org.ietf.jgss.GSSException;
  * @author Craig R. McClanahan
  */
 public class Request
-    implements HttpServletRequest {
+implements HttpServletRequest {
 
     private static final Log log = LogFactory.getLog(Request.class);
 
@@ -159,7 +167,7 @@ public class Request
      * The string manager for this package.
      */
     protected static final StringManager sm =
-        StringManager.getManager(Constants.Package);
+            StringManager.getManager(Constants.Package);
 
 
     /**
@@ -175,9 +183,9 @@ public class Request
      * declare formats[] as a static variable.
      */
     protected SimpleDateFormat formats[] = {
-        new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", Locale.US),
-        new SimpleDateFormat("EEEEEE, dd-MMM-yy HH:mm:ss zzz", Locale.US),
-        new SimpleDateFormat("EEE MMMM d HH:mm:ss yyyy", Locale.US)
+            new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", Locale.US),
+            new SimpleDateFormat("EEEEEE, dd-MMM-yy HH:mm:ss zzz", Locale.US),
+            new SimpleDateFormat("EEE MMMM d HH:mm:ss yyyy", Locale.US)
     };
 
 
@@ -190,8 +198,7 @@ public class Request
     /**
      * The attributes associated with this Request, keyed by attribute name.
      */
-    protected HashMap<String, Object> attributes =
-        new HashMap<String, Object>();
+    private final Map<String, Object> attributes = new ConcurrentHashMap<String, Object>();
 
 
     /**
@@ -249,7 +256,7 @@ public class Request
      * ServletInputStream.
      */
     protected CoyoteInputStream inputStream =
-        new CoyoteInputStream(inputBuffer);
+            new CoyoteInputStream(inputBuffer);
 
 
     /**
@@ -416,7 +423,7 @@ public class Request
     /**
      * AsyncContext
      */
-    protected volatile AsyncContextImpl asyncContext = null;
+    private volatile AsyncContextImpl asyncContext = null;
 
     protected Boolean asyncSupported = null;
 
@@ -494,18 +501,7 @@ public class Request
         notes.clear();
         cookies = null;
 
-        if (session != null) {
-            try {
-                session.endAccess();
-            } catch (Throwable t) {
-                ExceptionUtils.handleThrowable(t);
-                log.warn(sm.getString("coyoteRequest.sessionEndAccessFail"), t);
-            }
-        }
-        session = null;
-        requestedSessionCookie = false;
-        requestedSessionId = null;
-        requestedSessionURL = false;
+        recycleSessionInfo();
 
         if (Globals.IS_SECURITY_ENABLED || Connector.RECYCLE_FACADES) {
             parameterMap = new ParameterMap<String, String[]>();
@@ -553,11 +549,24 @@ public class Request
     }
 
 
-    /**
-     * Clear cached encoders (to save memory for Comet requests).
-     */
-    public boolean read()
-        throws IOException {
+    protected void recycleSessionInfo() {
+        if (session != null) {
+            try {
+                session.endAccess();
+            } catch (Throwable t) {
+                ExceptionUtils.handleThrowable(t);
+                log.warn(sm.getString("coyoteRequest.sessionEndAccessFail"), t);
+            }
+        }
+        session = null;
+        requestedSessionCookie = false;
+        requestedSessionId = null;
+        requestedSessionURL = false;
+        requestedSessionSSL = false;
+    }
+
+
+    public boolean read() throws IOException {
         return (inputBuffer.realReadBytes(null, 0, 0) > 0);
     }
 
@@ -660,7 +669,7 @@ public class Request
      * Descriptive information about this Request implementation.
      */
     protected static final String info =
-        "org.apache.coyote.catalina.CoyoteRequest/1.0";
+            "org.apache.coyote.catalina.CoyoteRequest/1.0";
 
     /**
      * Return descriptive information about this Request implementation and
@@ -789,7 +798,7 @@ public class Request
      * @exception IOException if an input/output error occurs
      */
     public ServletInputStream createInputStream()
-        throws IOException {
+            throws IOException {
         if (inputStream == null) {
             inputStream = new CoyoteInputStream(inputBuffer);
         }
@@ -948,9 +957,9 @@ public class Request
         if(attr != null) {
             return attr;
         }
-        if( isSSLAttribute(name) ) {
+        if( isSSLAttribute(name) || name.equals(SSLSupport.PROTOCOL_VERSION_KEY)) {
             coyoteRequest.action(ActionCode.REQ_SSL_ATTRIBUTE,
-                                 coyoteRequest);
+                    coyoteRequest);
             attr = coyoteRequest.getAttribute(Globals.CERTIFICATES_ATTR);
             if( attr != null) {
                 attributes.put(Globals.CERTIFICATES_ATTR, attr);
@@ -972,6 +981,10 @@ public class Request
             if(attr != null) {
                 attributes.put(Globals.SSL_SESSION_MGR_ATTR, attr);
             }
+            attr = coyoteRequest.getAttribute(SSLSupport.PROTOCOL_VERSION_KEY);
+            if(attr != null) {
+                attributes.put(SSLSupport.PROTOCOL_VERSION_KEY, attr);
+            }
             attr = attributes.get(name);
             sslAttributesParsed = true;
         }
@@ -984,11 +997,11 @@ public class Request
      */
     static boolean isSSLAttribute(String name) {
         return Globals.CERTIFICATES_ATTR.equals(name) ||
-            Globals.CIPHER_SUITE_ATTR.equals(name) ||
-            Globals.KEY_SIZE_ATTR.equals(name)  ||
-            Globals.SSL_SESSION_ID_ATTR.equals(name) ||
-            Globals.SSL_SESSION_ID_TOMCAT_ATTR.equals(name) ||
-            Globals.SSL_SESSION_MGR_ATTR.equals(name);
+                Globals.CIPHER_SUITE_ATTR.equals(name) ||
+                Globals.KEY_SIZE_ATTR.equals(name)  ||
+                Globals.SSL_SESSION_ID_ATTR.equals(name) ||
+                Globals.SSL_SESSION_ID_TOMCAT_ATTR.equals(name) ||
+                Globals.SSL_SESSION_MGR_ATTR.equals(name);
     }
 
     /**
@@ -1026,7 +1039,7 @@ public class Request
         if (isSecure() && !sslAttributesParsed) {
             getAttribute(Globals.CERTIFICATES_ATTR);
         }
-        // Take a copy to prevent ConncurrentModificationExceptions if used to
+        // Take a copy to prevent ConcurrentModificationExceptions if used to
         // remove attributes
         Set<String> names = new HashSet<String>();
         names.addAll(attributes.keySet());
@@ -1039,7 +1052,7 @@ public class Request
      */
     @Override
     public String getCharacterEncoding() {
-      return coyoteRequest.getCharacterEncoding();
+        return coyoteRequest.getCharacterEncoding();
     }
 
 
@@ -1075,7 +1088,7 @@ public class Request
 
         if (usingReader) {
             throw new IllegalStateException
-                (sm.getString("coyoteRequest.getInputStream.ise"));
+            (sm.getString("coyoteRequest.getInputStream.ise"));
         }
 
         usingInputStream = true;
@@ -1237,7 +1250,7 @@ public class Request
 
         if (usingInputStream) {
             throw new IllegalStateException
-                (sm.getString("coyoteRequest.getReader.ise"));
+            (sm.getString("coyoteRequest.getReader.ise"));
         }
 
         usingReader = true;
@@ -1285,7 +1298,7 @@ public class Request
     public String getRemoteAddr() {
         if (remoteAddr == null) {
             coyoteRequest.action
-                (ActionCode.REQ_HOST_ADDR_ATTRIBUTE, coyoteRequest);
+            (ActionCode.REQ_HOST_ADDR_ATTRIBUTE, coyoteRequest);
             remoteAddr = coyoteRequest.remoteAddr().toString();
         }
         return remoteAddr;
@@ -1302,7 +1315,7 @@ public class Request
                 remoteHost = getRemoteAddr();
             } else {
                 coyoteRequest.action
-                    (ActionCode.REQ_HOST_ATTRIBUTE, coyoteRequest);
+                (ActionCode.REQ_HOST_ATTRIBUTE, coyoteRequest);
                 remoteHost = coyoteRequest.remoteHost().toString();
             }
         }
@@ -1317,7 +1330,7 @@ public class Request
     public int getRemotePort(){
         if (remotePort == -1) {
             coyoteRequest.action
-                (ActionCode.REQ_REMOTEPORT_ATTRIBUTE, coyoteRequest);
+            (ActionCode.REQ_REMOTEPORT_ATTRIBUTE, coyoteRequest);
             remotePort = coyoteRequest.getRemotePort();
         }
         return remotePort;
@@ -1331,7 +1344,7 @@ public class Request
     public String getLocalName(){
         if (localName == null) {
             coyoteRequest.action
-                (ActionCode.REQ_LOCAL_NAME_ATTRIBUTE, coyoteRequest);
+            (ActionCode.REQ_LOCAL_NAME_ATTRIBUTE, coyoteRequest);
             localName = coyoteRequest.localName().toString();
         }
         return localName;
@@ -1345,7 +1358,7 @@ public class Request
     public String getLocalAddr(){
         if (localAddr == null) {
             coyoteRequest.action
-                (ActionCode.REQ_LOCAL_ADDR_ATTRIBUTE, coyoteRequest);
+            (ActionCode.REQ_LOCAL_ADDR_ATTRIBUTE, coyoteRequest);
             localAddr = coyoteRequest.localAddr().toString();
         }
         return localAddr;
@@ -1360,7 +1373,7 @@ public class Request
     public int getLocalPort(){
         if (localPort == -1){
             coyoteRequest.action
-                (ActionCode.REQ_LOCALPORT_ATTRIBUTE, coyoteRequest);
+            (ActionCode.REQ_LOCALPORT_ATTRIBUTE, coyoteRequest);
             localPort = coyoteRequest.getLocalPort();
         }
         return localPort;
@@ -1405,14 +1418,22 @@ public class Request
 
         int pos = requestPath.lastIndexOf('/');
         String relative = null;
-        if (pos >= 0) {
-            relative = requestPath.substring(0, pos + 1) + path;
+        if (context.getDispatchersUseEncodedPaths()) {
+            if (pos >= 0) {
+                relative = URLEncoder.DEFAULT.encode(
+                        requestPath.substring(0, pos + 1), "UTF-8") + path;
+            } else {
+                relative = URLEncoder.DEFAULT.encode(requestPath, "UTF-8") + path;
+            }
         } else {
-            relative = requestPath + path;
+            if (pos >= 0) {
+                relative = requestPath.substring(0, pos + 1) + path;
+            } else {
+                relative = requestPath + path;
+            }
         }
 
         return context.getServletContext().getRequestDispatcher(relative);
-
     }
 
 
@@ -1490,7 +1511,7 @@ public class Request
         // Name cannot be null
         if (name == null) {
             throw new IllegalArgumentException
-                (sm.getString("coyoteRequest.setAttribute.namenull"));
+            (sm.getString("coyoteRequest.setAttribute.namenull"));
         }
 
         // Null value is the same as removeAttribute()
@@ -1563,7 +1584,7 @@ public class Request
                 continue;
             }
             ServletRequestAttributeListener listener =
-                (ServletRequestAttributeListener) listeners[i];
+                    (ServletRequestAttributeListener) listeners[i];
             try {
                 if (replaced) {
                     listener.attributeReplaced(event);
@@ -1589,14 +1610,14 @@ public class Request
             return;
         }
         ServletRequestAttributeEvent event =
-          new ServletRequestAttributeEvent(context.getServletContext(),
-                                           getRequest(), name, value);
+                new ServletRequestAttributeEvent(context.getServletContext(),
+                        getRequest(), name, value);
         for (int i = 0; i < listeners.length; i++) {
             if (!(listeners[i] instanceof ServletRequestAttributeListener)) {
                 continue;
             }
             ServletRequestAttributeListener listener =
-                (ServletRequestAttributeListener) listeners[i];
+                    (ServletRequestAttributeListener) listeners[i];
             try {
                 listener.attributeRemoved(event);
             } catch (Throwable t) {
@@ -1623,15 +1644,11 @@ public class Request
      */
     @Override
     public void setCharacterEncoding(String enc)
-        throws UnsupportedEncodingException {
+            throws UnsupportedEncodingException {
 
         if (usingReader) {
             return;
         }
-
-        // Ensure that the specified encoding is valid
-        byte buffer[] = new byte[1];
-        buffer[0] = (byte) 'a';
 
         // Confirm that the encoding name is valid
         B2CConverter.getCharset(enc);
@@ -1644,7 +1661,7 @@ public class Request
     @Override
     public ServletContext getServletContext() {
         return context.getServletContext();
-     }
+    }
 
     @Override
     public AsyncContext startAsync() {
@@ -1655,7 +1672,7 @@ public class Request
     public AsyncContext startAsync(ServletRequest request,
             ServletResponse response) {
         if (!isAsyncSupported()) {
-            throw new IllegalStateException("Not supported.");
+            throw new IllegalStateException(sm.getString("request.asyncNotSupported"));
         }
 
         if (asyncContext == null) {
@@ -1688,6 +1705,16 @@ public class Request
         return result.get();
     }
 
+    public boolean isAsyncCompleting() {
+        if (asyncContext == null) {
+            return false;
+        }
+
+        AtomicBoolean result = new AtomicBoolean(false);
+        coyoteRequest.action(ActionCode.ASYNC_IS_COMPLETING, result);
+        return result.get();
+    }
+
     public boolean isAsync() {
         if (asyncContext == null) {
             return false;
@@ -1709,7 +1736,14 @@ public class Request
 
     @Override
     public AsyncContext getAsyncContext() {
-        return this.asyncContext;
+        if (!isAsyncStarted()) {
+            throw new IllegalStateException(sm.getString("request.notAsync"));
+        }
+        return asyncContext;
+    }
+
+    public AsyncContextImpl getAsyncContextInternal() {
+        return asyncContext;
     }
 
     @Override
@@ -1951,29 +1985,39 @@ public class Request
      *
      * @param principal The user Principal
      */
-    public void setUserPrincipal(Principal principal) {
-
-        if (Globals.IS_SECURITY_ENABLED){
-            HttpSession session = getSession(false);
-            if ( (subject != null) &&
-                 (!subject.getPrincipals().contains(principal)) ){
+    public void setUserPrincipal(final Principal principal) {
+        if (Globals.IS_SECURITY_ENABLED) {
+            if (subject == null) {
+                final HttpSession session = getSession(false);
+                if (session == null) {
+                    // Cache the subject in the request
+                    subject = newSubject(principal);
+                } else {
+                    // Cache the subject in the request and the session
+                    subject = (Subject) session.getAttribute(Globals.SUBJECT_ATTR);
+                    if (subject == null) {
+                        subject = newSubject(principal);
+                        session.setAttribute(Globals.SUBJECT_ATTR, subject);
+                    } else {
+                        subject.getPrincipals().add(principal);
+                    }
+                }
+            } else {
                 subject.getPrincipals().add(principal);
-            } else if (session != null &&
-                        session.getAttribute(Globals.SUBJECT_ATTR) == null) {
-                subject = new Subject();
-                subject.getPrincipals().add(principal);
-            }
-            if (session != null){
-                session.setAttribute(Globals.SUBJECT_ATTR, subject);
             }
         }
+        userPrincipal = principal;
+    }
 
-        this.userPrincipal = principal;
+
+    private Subject newSubject(final Principal principal) {
+        final Subject result = new Subject();
+        result.getPrincipals().add(principal);
+        return result;
     }
 
 
     // --------------------------------------------- HttpServletRequest Methods
-
 
     /**
      * Return the authentication type used for this Request.
@@ -1986,21 +2030,107 @@ public class Request
 
     /**
      * Return the portion of the request URI used to select the Context
-     * of the Request.
+     * of the Request. The value returned is not decoded which also implies it
+     * is not normalised.
      */
     @Override
     public String getContextPath() {
+        String canonicalContextPath = getServletContext().getContextPath();
         String uri = getRequestURI();
+        char[] uriChars = uri.toCharArray();
         int lastSlash = mappingData.contextSlashCount;
+        // Special case handling for the root context
+        if (lastSlash == 0) {
+            return "";
+        }
         int pos = 0;
+        // Need at least the number of slashes in the context path
         while (lastSlash > 0) {
-            pos = uri.indexOf('/', pos + 1);
+            pos = nextSlash(uriChars, pos + 1);
             if (pos == -1) {
-                return uri;
+                break;
             }
             lastSlash--;
         }
-        return uri.substring(0, pos);
+        // Now allow for path parameters, normalization and/or encoding.
+        // Essentially, keep extending the candidate path up to the next slash
+        // until the decoded and normalized candidate path (with the path
+        // parameters removed) is the same as the canonical path.
+        String candidate;
+        if (pos == -1) {
+            candidate = uri;
+        } else {
+            candidate = uri.substring(0, pos);
+        }
+        candidate = removePathParameters(candidate);
+        candidate = RequestUtil.URLDecode(candidate, connector.getURIEncoding());
+        candidate = org.apache.tomcat.util.http.RequestUtil.normalize(candidate);
+        boolean match = canonicalContextPath.equals(candidate);
+        while (!match && pos != -1) {
+            pos = nextSlash(uriChars, pos + 1);
+            if (pos == -1) {
+                candidate = uri;
+            } else {
+                candidate = uri.substring(0, pos);
+            }
+            candidate = removePathParameters(candidate);
+            candidate = RequestUtil.URLDecode(candidate, connector.getURIEncoding());
+            candidate = org.apache.tomcat.util.http.RequestUtil.normalize(candidate);
+            match = canonicalContextPath.equals(candidate);
+        }
+        if (match) {
+            if (pos == -1) {
+                return uri;
+            } else {
+                return uri.substring(0, pos);
+            }
+        } else {
+            // Should never happen
+            throw new IllegalStateException(sm.getString(
+                    "coyoteRequest.getContextPath.ise", canonicalContextPath, uri));
+        }
+    }
+
+
+    private String removePathParameters(String input) {
+        int nextSemiColon = input.indexOf(';');
+        // Shortcut
+        if (nextSemiColon == -1) {
+            return input;
+        }
+        StringBuilder result = new StringBuilder(input.length());
+        result.append(input.substring(0, nextSemiColon));
+        while (true) {
+            int nextSlash = input.indexOf('/', nextSemiColon);
+            if (nextSlash == -1) {
+                break;
+            }
+            nextSemiColon = input.indexOf(';', nextSlash);
+            if (nextSemiColon == -1) {
+                result.append(input.substring(nextSlash));
+                break;
+            } else {
+                result.append(input.substring(nextSlash, nextSemiColon));
+            }
+        }
+
+        return result.toString();
+    }
+
+
+    private int nextSlash(char[] uri, int startPos) {
+        int len = uri.length;
+        int pos = startPos;
+        while (pos < len) {
+            if (uri[pos] == '/') {
+                return pos;
+            } else if (UDecoder.ALLOW_ENCODED_SLASH && uri[pos] == '%' && pos + 2 < len &&
+                    uri[pos+1] == '2' && (uri[pos + 2] == 'f' || uri[pos + 2] == 'F')) {
+                return pos;
+            }
+            pos++;
+        }
+        return -1;
     }
 
 
@@ -2245,7 +2375,7 @@ public class Request
         String scheme = getScheme();
         int port = getServerPort();
         if (port < 0)
-         {
+        {
             port = 80; // Work around java.net.URL bug
         }
 
@@ -2253,7 +2383,7 @@ public class Request
         url.append("://");
         url.append(getServerName());
         if ((scheme.equals("http") && (port != 80))
-            || (scheme.equals("https") && (port != 443))) {
+                || (scheme.equals("https") && (port != 443))) {
             url.append(':');
             url.append(port);
         }
@@ -2514,8 +2644,8 @@ public class Request
 
         if (response != null) {
             Cookie newCookie =
-                ApplicationSessionCookieConfig.createSessionCookie(context,
-                        newSessionId, secure);
+                    ApplicationSessionCookieConfig.createSessionCookie(context,
+                            newSessionId, secure);
             response.addSessionCookieInternal(newCookie);
         }
     }
@@ -2609,7 +2739,7 @@ public class Request
      */
     @Override
     public boolean authenticate(HttpServletResponse response)
-    throws IOException, ServletException {
+            throws IOException, ServletException {
         if (response.isCommitted()) {
             throw new IllegalStateException(
                     sm.getString("coyoteRequest.authenticate.ise"));
@@ -2623,7 +2753,7 @@ public class Request
      */
     @Override
     public void login(String username, String password)
-    throws ServletException {
+            throws ServletException {
         if (getAuthType() != null || getRemoteUser() != null ||
                 getUserPrincipal() != null) {
             throw new ServletException(
@@ -2650,7 +2780,7 @@ public class Request
      */
     @Override
     public Collection<Part> getParts() throws IOException, IllegalStateException,
-            ServletException {
+    ServletException {
 
         parseParts();
 
@@ -2679,9 +2809,9 @@ public class Request
         if (mce == null) {
             if(getContext().getAllowCasualMultipartParsing()) {
                 mce = new MultipartConfigElement(null,
-                                                 connector.getMaxPostSize(),
-                                                 connector.getMaxPostSize(),
-                                                 connector.getMaxPostSize());
+                        connector.getMaxPostSize(),
+                        connector.getMaxPostSize(),
+                        connector.getMaxPostSize());
             } else {
                 parts = Collections.emptyList();
                 return;
@@ -2704,12 +2834,13 @@ public class Request
                 if (!location.isAbsolute()) {
                     location = new File(
                             (File) context.getServletContext().getAttribute(
-                                        ServletContext.TEMPDIR),
-                                        locationStr).getAbsoluteFile();
+                                    ServletContext.TEMPDIR),
+                            locationStr).getAbsoluteFile();
                 }
             }
 
             if (!location.isDirectory()) {
+                parameters.setParseFailedReason(FailReason.MULTIPART_CONFIG_INVALID);
                 partsParseException = new IOException(
                         sm.getString("coyoteRequest.uploadLocationInvalid",
                                 location));
@@ -2722,6 +2853,7 @@ public class Request
             try {
                 factory.setRepository(location.getCanonicalFile());
             } catch (IOException ioe) {
+                parameters.setParseFailedReason(FailReason.IO_ERROR);
                 partsParseException = ioe;
                 return;
             }
@@ -2770,7 +2902,7 @@ public class Request
                                 // Should not be possible
                             }
                         }
-                        if (maxPostSize > 0) {
+                        if (maxPostSize >= 0) {
                             // Have to calculate equivalent size. Not completely
                             // accurate but close enough.
                             if (charset == null) {
@@ -2788,6 +2920,7 @@ public class Request
                             // Value separator
                             postSize++;
                             if (postSize > maxPostSize) {
+                                parameters.setParseFailedReason(FailReason.POST_TOO_LARGE);
                                 throw new IllegalStateException(sm.getString(
                                         "coyoteRequest.maxPostSizeExceeded"));
                             }
@@ -2798,19 +2931,23 @@ public class Request
 
                 success = true;
             } catch (InvalidContentTypeException e) {
+                parameters.setParseFailedReason(FailReason.INVALID_CONTENT_TYPE);
                 partsParseException = new ServletException(e);
             } catch (FileUploadBase.SizeException e) {
+                parameters.setParseFailedReason(FailReason.POST_TOO_LARGE);
                 checkSwallowInput();
                 partsParseException = new IllegalStateException(e);
             } catch (FileUploadException e) {
+                parameters.setParseFailedReason(FailReason.IO_ERROR);
                 partsParseException = new IOException(e);
             } catch (IllegalStateException e) {
+                // addParameters() will set parseFailedReason
                 checkSwallowInput();
                 partsParseException = e;
             }
         } finally {
             if (partsParseException != null || !success) {
-                parameters.setParseFailed(true);
+                parameters.setParseFailedReason(FailReason.UNKNOWN);
             }
         }
     }
@@ -2821,7 +2958,7 @@ public class Request
      */
     @Override
     public Part getPart(String name) throws IOException, IllegalStateException,
-            ServletException {
+    ServletException {
         Collection<Part> c = getParts();
         Iterator<Part> iterator = c.iterator();
         while (iterator.hasNext()) {
@@ -2857,7 +2994,7 @@ public class Request
     @SuppressWarnings("unchecked")
     public <T extends HttpUpgradeHandler> T upgrade(
             Class<T> httpUpgradeHandlerClass) throws ServletException {
-            
+
         T handler;
         try {
             handler = (T) context.getInstanceManager().newInstance(httpUpgradeHandlerClass);
@@ -2868,6 +3005,12 @@ public class Request
         } catch (InvocationTargetException e) {
             throw new ServletException(e);
         } catch (NamingException e) {
+            throw new ServletException(e);
+        } catch (IllegalArgumentException e) {
+            throw new ServletException(e);
+        } catch (SecurityException e) {
+            throw new ServletException(e);
+        } catch (NoSuchMethodException e) {
             throw new ServletException(e);
         }
 
@@ -2887,6 +3030,7 @@ public class Request
     protected Session doGetSession(boolean create) {
 
         // There cannot be a session if no context has been assigned yet
+        Context context = getContext();
         if (context == null) {
             return (null);
         }
@@ -2900,13 +3044,9 @@ public class Request
         }
 
         // Return the requested session if it exists and is valid
-        Manager manager = null;
-        if (context != null) {
-            manager = context.getManager();
-        }
-        if (manager == null)
-         {
-            return (null);      // Sessions are not supported
+        Manager manager = context.getManager();
+        if (manager == null) {
+            return null;        // Sessions are not supported
         }
         if (requestedSessionId != null) {
             try {
@@ -2927,33 +3067,65 @@ public class Request
         if (!create) {
             return (null);
         }
-        if ((context != null) && (response != null) &&
-            context.getServletContext().getEffectiveSessionTrackingModes().
-                    contains(SessionTrackingMode.COOKIE) &&
-            response.getResponse().isCommitted()) {
+        if ((response != null) &&
+                context.getServletContext().getEffectiveSessionTrackingModes().
+                contains(SessionTrackingMode.COOKIE) &&
+                response.getResponse().isCommitted()) {
             throw new IllegalStateException
-              (sm.getString("coyoteRequest.sessionCreateCommitted"));
+            (sm.getString("coyoteRequest.sessionCreateCommitted"));
         }
 
-        // Attempt to reuse session id if one was submitted in a cookie
-        // Do not reuse the session id if it is from a URL, to prevent possible
-        // phishing attacks
-        // Use the SSL session ID if one is present.
-        if (("/".equals(context.getSessionCookiePath())
-                && isRequestedSessionIdFromCookie()) || requestedSessionSSL ) {
-            session = manager.createSession(getRequestedSessionId());
+        // Re-use session IDs provided by the client in very limited
+        // circumstances.
+        String sessionId = getRequestedSessionId();
+        if (requestedSessionSSL) {
+            // If the session ID has been obtained from the SSL handshake then
+            // use it.
+        } else if (("/".equals(context.getSessionCookiePath())
+                && isRequestedSessionIdFromCookie())) {
+            /* This is the common(ish) use case: using the same session ID with
+             * multiple web applications on the same host. Typically this is
+             * used by Portlet implementations. It only works if sessions are
+             * tracked via cookies. The cookie must have a path of "/" else it
+             * won't be provided for requests to all web applications.
+             *
+             * Any session ID provided by the client should be for a session
+             * that already exists somewhere on the host. Check if the context
+             * is configured for this to be confirmed.
+             */
+            if (context.getValidateClientProvidedNewSessionId()) {
+                boolean found = false;
+                for (Container container : getHost().findChildren()) {
+                    Manager m = ((Context) container).getManager();
+                    if (m != null) {
+                        try {
+                            if (m.findSession(sessionId) != null) {
+                                found = true;
+                                break;
+                            }
+                        } catch (IOException e) {
+                            // Ignore. Problems with this manager will be
+                            // handled elsewhere.
+                        }
+                    }
+                }
+                if (!found) {
+                    sessionId = null;
+                }
+            }
         } else {
-            session = manager.createSession(null);
+            sessionId = null;
         }
+        session = manager.createSession(sessionId);
 
         // Creating a new session cookie based on that session
         if ((session != null) && (getContext() != null)
-               && getContext().getServletContext().
-                       getEffectiveSessionTrackingModes().contains(
-                               SessionTrackingMode.COOKIE)) {
+                && getContext().getServletContext().
+                getEffectiveSessionTrackingModes().contains(
+                        SessionTrackingMode.COOKIE)) {
             Cookie cookie =
-                ApplicationSessionCookieConfig.createSessionCookie(
-                        context, session.getIdInternal(), isSecure());
+                    ApplicationSessionCookieConfig.createSessionCookie(
+                            context, session.getIdInternal(), isSecure());
 
             response.addSessionCookieInternal(cookie);
         }
@@ -2980,7 +3152,7 @@ public class Request
                 buf.append(c);
             } else {
                 if (++i >= s.length())
-                 {
+                {
                     throw new IllegalArgumentException();//invalid escape, hence invalid cookie
                 }
                 c = s.charAt(i);
@@ -3011,7 +3183,7 @@ public class Request
             try {
                 /*
                 we must unescape the '\\' escape character
-                */
+                 */
                 Cookie cookie = new Cookie(scookie.getName().toString(),null);
                 int version = scookie.getVersion();
                 cookie.setVersion(version);
@@ -3019,7 +3191,7 @@ public class Request
                 cookie.setPath(unescape(scookie.getPath().toString()));
                 String domain = scookie.getDomain().toString();
                 if (domain!=null)
-                 {
+                {
                     cookie.setDomain(unescape(domain));//avoid NPE
                 }
                 String comment = scookie.getComment().toString();
@@ -3062,10 +3234,10 @@ public class Request
                 }
             } else {
                 parameters.setEncoding
-                    (org.apache.coyote.Constants.DEFAULT_CHARACTER_ENCODING);
+                (org.apache.coyote.Constants.DEFAULT_CHARACTER_ENCODING);
                 if (useBodyEncodingForURI) {
                     parameters.setQueryStringEncoding
-                        (org.apache.coyote.Constants.DEFAULT_CHARACTER_ENCODING);
+                    (org.apache.coyote.Constants.DEFAULT_CHARACTER_ENCODING);
                 }
             }
 
@@ -3107,12 +3279,13 @@ public class Request
 
             if (len > 0) {
                 int maxPostSize = connector.getMaxPostSize();
-                if ((maxPostSize > 0) && (len > maxPostSize)) {
+                if ((maxPostSize >= 0) && (len > maxPostSize)) {
                     if (context.getLogger().isDebugEnabled()) {
                         context.getLogger().debug(
                                 sm.getString("coyoteRequest.postTooLarge"));
                     }
                     checkSwallowInput();
+                    parameters.setParseFailedReason(FailReason.POST_TOO_LARGE);
                     return;
                 }
                 byte[] formData = null;
@@ -3126,6 +3299,7 @@ public class Request
                 }
                 try {
                     if (readPostBody(formData, len) != len) {
+                        parameters.setParseFailedReason(FailReason.REQUEST_BODY_INCOMPLETE);
                         return;
                     }
                 } catch (IOException e) {
@@ -3134,6 +3308,7 @@ public class Request
                         context.getLogger().debug(
                                 sm.getString("coyoteRequest.parseParameters"), e);
                     }
+                    parameters.setParseFailedReason(FailReason.CLIENT_DISCONNECT);
                     return;
                 }
                 parameters.processParameters(formData, 0, len);
@@ -3142,9 +3317,21 @@ public class Request
                 byte[] formData = null;
                 try {
                     formData = readChunkedPostBody();
+                } catch (IllegalStateException ise) {
+                    // chunkedPostTooLarge error
+                    parameters.setParseFailedReason(FailReason.POST_TOO_LARGE);
+                    Context context = getContext();
+                    if (context != null && context.getLogger().isDebugEnabled()) {
+                        context.getLogger().debug(
+                                sm.getString("coyoteRequest.parseParameters"),
+                                ise);
+                    }
+                    return;
                 } catch (IOException e) {
-                    // Client disconnect or chunkedPostTooLarge error
-                    if (context.getLogger().isDebugEnabled()) {
+                    // Client disconnect
+                    parameters.setParseFailedReason(FailReason.CLIENT_DISCONNECT);
+                    Context context = getContext();
+                    if (context != null && context.getLogger().isDebugEnabled()) {
                         context.getLogger().debug(
                                 sm.getString("coyoteRequest.parseParameters"), e);
                     }
@@ -3157,7 +3344,7 @@ public class Request
             success = true;
         } finally {
             if (!success) {
-                parameters.setParseFailed(true);
+                parameters.setParseFailedReason(FailReason.UNKNOWN);
             }
         }
 
@@ -3168,7 +3355,7 @@ public class Request
      * Read post body in an array.
      */
     protected int readPostBody(byte body[], int len)
-        throws IOException {
+            throws IOException {
 
         int offset = 0;
         do {
@@ -3194,11 +3381,11 @@ public class Request
         int len = 0;
         while (len > -1) {
             len = getStream().read(buffer, 0, CACHED_POST_LEN);
-            if (connector.getMaxPostSize() > 0 &&
+            if (connector.getMaxPostSize() >= 0 &&
                     (body.getLength() + len) > connector.getMaxPostSize()) {
                 // Too much data
                 checkSwallowInput();
-                throw new IOException(
+                throw new IllegalStateException(
                         sm.getString("coyoteRequest.chunkedPostTooLarge"));
             }
             if (len > 0) {
@@ -3226,26 +3413,33 @@ public class Request
 
         localesParsed = true;
 
+        // Store the accumulated languages that have been requested in
+        // a local collection, sorted by the quality value (so we can
+        // add Locales in descending order).  The values will be ArrayLists
+        // containing the corresponding Locales to be added
+        TreeMap<Double, ArrayList<Locale>> locales = new TreeMap<Double, ArrayList<Locale>>();
+
         Enumeration<String> values = getHeaders("accept-language");
 
         while (values.hasMoreElements()) {
             String value = values.nextElement();
-            parseLocalesHeader(value);
+            parseLocalesHeader(value, locales);
         }
 
+        // Process the quality values in highest->lowest order (due to
+        // negating the Double value when creating the key)
+        for (ArrayList<Locale> list : locales.values()) {
+            for (Locale locale : list) {
+                addLocale(locale);
+            }
+        }
     }
 
 
     /**
      * Parse accept-language header value.
      */
-    protected void parseLocalesHeader(String value) {
-
-        // Store the accumulated languages that have been requested in
-        // a local collection, sorted by the quality value (so we can
-        // add Locales in descending order).  The values will be ArrayLists
-        // containing the corresponding Locales to be added
-        TreeMap<Double, ArrayList<Locale>> locales = new TreeMap<Double, ArrayList<Locale>>();
+    protected void parseLocalesHeader(String value, TreeMap<Double, ArrayList<Locale>> locales) {
 
         // Preprocess the value to remove all whitespace
         int white = value.indexOf(' ');
@@ -3265,6 +3459,8 @@ public class Request
         } else {
             parser.setString(value);
         }
+
+        JreCompat jreCompat = JreCompat.getInstance();
 
         // Process each comma-delimited language specification
         int length = parser.getLength();
@@ -3298,70 +3494,27 @@ public class Request
 
             // Skip entries we are not going to keep track of
             if (quality < 0.00005)
-             {
+            {
                 continue;       // Zero (or effectively zero) quality factors
             }
             if ("*".equals(entry))
-             {
+            {
                 continue;       // FIXME - "*" entries are not handled
             }
 
-            // Extract the language and country for this entry
-            String language = null;
-            String country = null;
-            String variant = null;
-            int dash = entry.indexOf('-');
-            if (dash < 0) {
-                language = entry;
-                country = "";
-                variant = "";
-            } else {
-                language = entry.substring(0, dash);
-                country = entry.substring(dash + 1);
-                int vDash = country.indexOf('-');
-                if (vDash > 0) {
-                    String cTemp = country.substring(0, vDash);
-                    variant = country.substring(vDash + 1);
-                    country = cTemp;
-                } else {
-                    variant = "";
-                }
-            }
-            if (!isAlpha(language) || !isAlpha(country) || !isAlpha(variant)) {
+            Locale locale = jreCompat.forLanguageTag(entry);
+            if (locale == null) {
                 continue;
             }
 
-            // Add a new Locale to the list of Locales for this quality level
-            Locale locale = new Locale(language, country, variant);
-            Double key = new Double(-quality);  // Reverse the order
+            Double key = Double.valueOf(-quality);  // Reverse the order
             ArrayList<Locale> values = locales.get(key);
             if (values == null) {
                 values = new ArrayList<Locale>();
                 locales.put(key, values);
             }
             values.add(locale);
-
         }
-
-        // Process the quality values in highest->lowest order (due to
-        // negating the Double value when creating the key)
-        for (ArrayList<Locale> list : locales.values()) {
-            for (Locale locale : list) {
-                addLocale(locale);
-            }
-        }
-
-    }
-
-
-    protected static final boolean isAlpha(String value) {
-        for (int i = 0; i < value.length(); i++) {
-            char c = value.charAt(i);
-            if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))) {
-                return false;
-            }
-        }
-        return true;
     }
 
 
@@ -3377,81 +3530,93 @@ public class Request
     }
 
     private static final Map<String, SpecialAttributeAdapter> specialAttributes
-        = new HashMap<String, SpecialAttributeAdapter>();
+    = new HashMap<String, SpecialAttributeAdapter>();
 
     static {
         specialAttributes.put(Globals.DISPATCHER_TYPE_ATTR,
                 new SpecialAttributeAdapter() {
-                    @Override
-                    public Object get(Request request, String name) {
-                        return (request.internalDispatcherType == null) ? DispatcherType.REQUEST
-                                : request.internalDispatcherType;
-                    }
+            @Override
+            public Object get(Request request, String name) {
+                return (request.internalDispatcherType == null) ? DispatcherType.REQUEST
+                        : request.internalDispatcherType;
+            }
 
-                    @Override
-                    public void set(Request request, String name, Object value) {
-                        request.internalDispatcherType = (DispatcherType) value;
-                    }
-                });
+            @Override
+            public void set(Request request, String name, Object value) {
+                request.internalDispatcherType = (DispatcherType) value;
+            }
+        });
         specialAttributes.put(Globals.DISPATCHER_REQUEST_PATH_ATTR,
                 new SpecialAttributeAdapter() {
-                    @Override
-                    public Object get(Request request, String name) {
-                        return (request.requestDispatcherPath == null) ? request
-                                .getRequestPathMB().toString()
-                                : request.requestDispatcherPath.toString();
-                    }
+            @Override
+            public Object get(Request request, String name) {
+                return (request.requestDispatcherPath == null) ? request
+                        .getRequestPathMB().toString()
+                        : request.requestDispatcherPath.toString();
+            }
 
-                    @Override
-                    public void set(Request request, String name, Object value) {
-                        request.requestDispatcherPath = value;
-                    }
-                });
+            @Override
+            public void set(Request request, String name, Object value) {
+                request.requestDispatcherPath = value;
+            }
+        });
         specialAttributes.put(Globals.ASYNC_SUPPORTED_ATTR,
                 new SpecialAttributeAdapter() {
-                    @Override
-                    public Object get(Request request, String name) {
-                        return request.asyncSupported;
-                    }
+            @Override
+            public Object get(Request request, String name) {
+                return request.asyncSupported;
+            }
 
-                    @Override
-                    public void set(Request request, String name, Object value) {
-                        Boolean oldValue = request.asyncSupported;
-                        request.asyncSupported = (Boolean)value;
-                        request.notifyAttributeAssigned(name, value, oldValue);
-                    }
-                });
+            @Override
+            public void set(Request request, String name, Object value) {
+                Boolean oldValue = request.asyncSupported;
+                request.asyncSupported = (Boolean)value;
+                request.notifyAttributeAssigned(name, value, oldValue);
+            }
+        });
         specialAttributes.put(Globals.GSS_CREDENTIAL_ATTR,
                 new SpecialAttributeAdapter() {
-                    @Override
-                    public Object get(Request request, String name) {
-                        if (request.userPrincipal instanceof GenericPrincipal) {
-                            return ((GenericPrincipal) request.userPrincipal)
-                                    .getGssCredential();
-                        }
-                        return null;
-                    }
+            @Override
+            public Object get(Request request, String name) {
+                if (request.userPrincipal instanceof GenericPrincipal) {
+                    return ((GenericPrincipal) request.userPrincipal)
+                            .getGssCredential();
+                }
+                return null;
+            }
 
-                    @Override
-                    public void set(Request request, String name, Object value) {
-                        // NO-OP
-                    }
-                });
+            @Override
+            public void set(Request request, String name, Object value) {
+                // NO-OP
+            }
+        });
         specialAttributes.put(Globals.PARAMETER_PARSE_FAILED_ATTR,
                 new SpecialAttributeAdapter() {
-                    @Override
-                    public Object get(Request request, String name) {
-                        if (request.getCoyoteRequest().getParameters()
-                                .isParseFailed()) {
-                            return Boolean.TRUE;
-                        }
-                        return null;
-                    }
+            @Override
+            public Object get(Request request, String name) {
+                if (request.getCoyoteRequest().getParameters()
+                        .isParseFailed()) {
+                    return Boolean.TRUE;
+                }
+                return null;
+            }
 
-                    @Override
-                    public void set(Request request, String name, Object value) {
-                        // NO-OP
-                    }
-                });
+            @Override
+            public void set(Request request, String name, Object value) {
+                // NO-OP
+            }
+        });
+        specialAttributes.put(Globals.PARAMETER_PARSE_FAILED_REASON_ATTR,
+                new SpecialAttributeAdapter() {
+            @Override
+            public Object get(Request request, String name) {
+                return request.getCoyoteRequest().getParameters().getParseFailedReason();
+            }
+
+            @Override
+            public void set(Request request, String name, Object value) {
+                // NO-OP
+            }
+        });
     }
 }

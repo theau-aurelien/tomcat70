@@ -146,38 +146,47 @@ public class TcpFailureDetector extends ChannelInterceptorBase {
         if ( membership == null ) setupMembership();
         boolean notify = false;
         boolean shutdown = Arrays.equals(member.getCommand(),Member.SHUTDOWN_PAYLOAD);
-        if ( !shutdown )
-            if(log.isInfoEnabled())
-                log.info("Received memberDisappeared["+member+"] message. Will verify.");
-        synchronized (membership) {
-            if (!membership.contains(member)) {
-                if(log.isInfoEnabled())
-                    log.info("Verification complete. Member already disappeared["+member+"]");
-                return;
-            }
-            //check to see if the member really is gone
-            //if the payload is not a shutdown message
-            if (shutdown || !memberAlive(member)) {
-                //not correct, we need to maintain the map
+        if (shutdown) {
+            synchronized (membership) {
+                if (!membership.contains(member)) return;
                 membership.removeMember( (MemberImpl) member);
                 removeSuspects.remove(member);
                 if (member instanceof StaticMember) {
                     addSuspects.put(member, Long.valueOf(System.currentTimeMillis()));
                 }
-                notify = true;
-            } else {
-                //add the member as suspect
-                removeSuspects.put(member, Long.valueOf(System.currentTimeMillis()));
             }
-        }
-        if ( notify ) {
-            if(log.isInfoEnabled())
-                log.info("Verification complete. Member disappeared["+member+"]");
             super.memberDisappeared(member);
         } else {
             if(log.isInfoEnabled())
-                log.info("Verification complete. Member still alive["+member+"]");
-
+                log.info("Received memberDisappeared["+member+"] message. Will verify.");
+            synchronized (membership) {
+                if (!membership.contains(member)) {
+                    if(log.isInfoEnabled())
+                        log.info("Verification complete. Member already disappeared["+member+"]");
+                    return;
+                }
+                //check to see if the member really is gone
+                if (!memberAlive(member)) {
+                    //not correct, we need to maintain the map
+                    membership.removeMember( (MemberImpl) member);
+                    removeSuspects.remove(member);
+                    if (member instanceof StaticMember) {
+                        addSuspects.put(member, Long.valueOf(System.currentTimeMillis()));
+                    }
+                    notify = true;
+                } else {
+                    //add the member as suspect
+                    removeSuspects.put(member, Long.valueOf(System.currentTimeMillis()));
+                }
+            }
+            if ( notify ) {
+                if(log.isInfoEnabled())
+                    log.info("Verification complete. Member disappeared["+member+"]");
+                super.memberDisappeared(member);
+            } else {
+                if(log.isInfoEnabled()) 
+                    log.info("Verification complete. Member still alive["+member+"]");
+            }
         }
     }
 
@@ -256,7 +265,7 @@ public class TcpFailureDetector extends ChannelInterceptorBase {
             if (membership.memberAlive( (MemberImpl) members[i])) {
                 //we don't have this one in our membership, check to see if he/she is alive
                 if (memberAlive(members[i])) {
-                    log.warn("Member added, even though we werent notified:" + members[i]);
+                    log.warn("Member added, even though we weren't notified:" + members[i]);
                     super.memberAdded(members[i]);
                 } else {
                     membership.removeMember( (MemberImpl) members[i]);
@@ -271,6 +280,9 @@ public class TcpFailureDetector extends ChannelInterceptorBase {
             MemberImpl m = keys[i];
             if (membership.getMember(m) != null && (!memberAlive(m))) {
                 membership.removeMember(m);
+                if (m instanceof StaticMember) {
+                    addSuspects.put(m, Long.valueOf(System.currentTimeMillis()));
+                }
                 super.memberDisappeared(m);
                 removeSuspects.remove(m);
                 if(log.isInfoEnabled())
@@ -347,7 +359,7 @@ public class TcpFailureDetector extends ChannelInterceptorBase {
         } catch ( ConnectException cx) {
             //do nothing, we couldn't connect
         }catch (Exception x ) {
-            log.error("Unable to perform failure detection check, assuming member down.",x);
+            log.error("Unable to perform failure detection check, assuming member down.[" + mbr + "]",x);
         } finally {
             try {socket.close(); } catch ( Exception ignore ){}
         }

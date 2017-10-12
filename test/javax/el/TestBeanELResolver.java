@@ -59,7 +59,6 @@ public class TestBeanELResolver {
         Assert.assertTrue("Wrong exception type",
                 e instanceof PropertyNotFoundException);
         String type = Bean.class.getName();
-        @SuppressWarnings("null") // Assert above prevents msg being null
         String msg = e.getMessage();
         Assert.assertTrue("No reference to type [" + type +
                 "] where property cannot be found in [" + msg + "]",
@@ -332,7 +331,7 @@ public class TestBeanELResolver {
         BeanELResolver resolver = new BeanELResolver();
         ELContext context = new ELContextImpl();
 
-        resolver.isReadOnly(context, new TesterBean(BEAN_NAME), new Integer(0));
+        resolver.isReadOnly(context, new TesterBean(BEAN_NAME), Integer.valueOf(0));
     }
 
     /**

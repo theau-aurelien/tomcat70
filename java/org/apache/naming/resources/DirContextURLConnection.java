@@ -57,11 +57,6 @@ import org.apache.tomcat.util.http.FastHttpDateFormat;
 public class DirContextURLConnection extends URLConnection {
 
     private static final UDecoder URL_DECODER = new UDecoder();
-    private static final UEncoder URL_ENCODER = new UEncoder();
-
-    static{
-        URL_ENCODER.addSafeCharacter('/');
-    }
 
     // ----------------------------------------------------------- Constructors
 
@@ -436,11 +431,12 @@ public class DirContextURLConnection extends URLConnection {
             try {
                 NamingEnumeration<NameClassPair> enumeration =
                     collection.list("/");
+                UEncoder urlEncoder = new UEncoder(UEncoder.SafeCharsSet.WITH_SLASH);
                 while (enumeration.hasMoreElements()) {
                     NameClassPair ncp = enumeration.nextElement();
                     String s = ncp.getName();
                     result.addElement(
-                            URL_ENCODER.encodeURL(s, 0, s.length()).toString());
+                            urlEncoder.encodeURL(s, 0, s.length()).toString());
                 }
             } catch (NamingException e) {
                 // Unexpected exception

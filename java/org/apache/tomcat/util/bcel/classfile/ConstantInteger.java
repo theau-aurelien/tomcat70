@@ -20,39 +20,28 @@ package org.apache.tomcat.util.bcel.classfile;
 import java.io.DataInput;
 import java.io.IOException;
 
-import org.apache.tomcat.util.bcel.Constants;
+import org.apache.tomcat.util.bcel.Const;
 
-/** 
- * This class is derived from the abstract 
- * <A HREF="org.apache.tomcat.util.bcel.classfile.Constant.html">Constant</A> class 
+/**
+ * This class is derived from the abstract {@link Constant}
  * and represents a reference to an int object.
  *
- * @author  <A HREF="mailto:m.dahm@gmx.de">M. Dahm</A>
  * @see     Constant
  */
 public final class ConstantInteger extends Constant {
 
-    private static final long serialVersionUID = -6415476571232528966L;
-    private int bytes;
+    private final int bytes;
 
 
-    /** 
-     * @param bytes Data
-     */
-    public ConstantInteger(int bytes) {
-        super(Constants.CONSTANT_Integer);
-        this.bytes = bytes;
-    }
-
-
-    /** 
+    /**
      * Initialize instance from file data.
      *
      * @param file Input stream
      * @throws IOException
      */
-    ConstantInteger(DataInput file) throws IOException {
-        this(file.readInt());
+    ConstantInteger(final DataInput file) throws IOException {
+        super(Const.CONSTANT_Integer);
+        this.bytes = file.readInt();
     }
 
 
@@ -61,14 +50,5 @@ public final class ConstantInteger extends Constant {
      */
     public final int getBytes() {
         return bytes;
-    }
-
-
-    /**
-     * @return String representation.
-     */
-    @Override
-    public final String toString() {
-        return super.toString() + "(bytes = " + bytes + ")";
     }
 }

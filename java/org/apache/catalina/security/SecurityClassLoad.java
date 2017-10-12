@@ -105,7 +105,10 @@ public final class SecurityClassLoad {
         final String basePackage = "org.apache.catalina.loader.";
         loader.loadClass
             (basePackage +
-             "WebappClassLoader$PrivilegedFindResourceByName");
+             "ResourceEntry");
+        loader.loadClass
+            (basePackage +
+             "WebappClassLoaderBase$PrivilegedFindResourceByName");
     }
 
 
@@ -146,6 +149,7 @@ public final class SecurityClassLoad {
         final String basePackage = "org.apache.catalina.util.";
         loader.loadClass(basePackage + "Enumerator");
         loader.loadClass(basePackage + "ParameterMap");
+        loader.loadClass(basePackage + "RequestUtil");
     }
 
 
@@ -260,10 +264,13 @@ public final class SecurityClassLoad {
         throws Exception {
         final String basePackage = "org.apache.tomcat.";
         // buf
+        loader.loadClass(basePackage + "util.buf.B2CConverter");
+        loader.loadClass(basePackage + "util.buf.C2BConverter");
         loader.loadClass(basePackage + "util.buf.HexUtils");
         loader.loadClass(basePackage + "util.buf.StringCache");
         loader.loadClass(basePackage + "util.buf.StringCache$ByteEntry");
         loader.loadClass(basePackage + "util.buf.StringCache$CharEntry");
+        loader.loadClass(basePackage + "util.buf.UriUtil");
         // http
         loader.loadClass(basePackage + "util.http.HttpMessages");
         // Make sure system property is read at this point
@@ -275,6 +282,8 @@ public final class SecurityClassLoad {
         loader.loadClass(basePackage + "util.http.parser.HttpParser$SkipConstantResult");
         loader.loadClass(basePackage + "util.http.parser.MediaType");
         loader.loadClass(basePackage + "util.http.parser.MediaTypeCache");
+        // jni
+        loader.loadClass(basePackage + "jni.Status");
         // net
         loader.loadClass(basePackage + "util.net.Constants");
         loader.loadClass(basePackage +

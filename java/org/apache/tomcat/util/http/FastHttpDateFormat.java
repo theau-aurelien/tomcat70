@@ -21,6 +21,7 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
+import java.util.Map;
 import java.util.TimeZone;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -88,15 +89,15 @@ public final class FastHttpDateFormat {
     /**
      * Formatter cache.
      */
-    private static final ConcurrentHashMap<Long, String> formatCache =
-        new ConcurrentHashMap<Long, String>(CACHE_SIZE);
+    private static final Map<Long, String> formatCache =
+            new ConcurrentHashMap<Long, String>(CACHE_SIZE);
 
 
     /**
      * Parser cache.
      */
-    private static final ConcurrentHashMap<String, Long> parseCache =
-        new ConcurrentHashMap<String, Long>(CACHE_SIZE);
+    private static final Map<String, Long> parseCache = 
+            new ConcurrentHashMap<String, Long>(CACHE_SIZE);
 
 
     // --------------------------------------------------------- Public Methods
@@ -127,7 +128,7 @@ public final class FastHttpDateFormat {
     public static final String formatDate
         (long value, DateFormat threadLocalformat) {
 
-        Long longValue = new Long(value);
+        Long longValue = Long.valueOf(value);
         String cachedDate = formatCache.get(longValue);
         if (cachedDate != null) {
             return cachedDate;
@@ -139,15 +140,12 @@ public final class FastHttpDateFormat {
             newDate = threadLocalformat.format(dateValue);
             updateFormatCache(longValue, newDate);
         } else {
-            synchronized (formatCache) {
-                synchronized (format) {
-                    newDate = format.format(dateValue);
-                }
-                updateFormatCache(longValue, newDate);
+            synchronized (format) {
+                newDate = format.format(dateValue);
             }
+            updateFormatCache(longValue, newDate);
         }
         return newDate;
-
     }
 
 
@@ -167,10 +165,8 @@ public final class FastHttpDateFormat {
             date = internalParseDate(value, threadLocalformats);
             updateParseCache(value, date);
         } else {
-            synchronized (parseCache) {
-                date = internalParseDate(value, formats);
-                updateParseCache(value, date);
-            }
+            date = internalParseDate(value, formats);
+            updateParseCache(value, date);
         }
         if (date == null) {
             return (-1L);
@@ -196,7 +192,7 @@ public final class FastHttpDateFormat {
         if (date == null) {
             return null;
         }
-        return new Long(date.getTime());
+        return Long.valueOf(date.getTime());
     }
 
 

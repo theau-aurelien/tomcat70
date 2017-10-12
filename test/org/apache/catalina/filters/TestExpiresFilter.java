@@ -32,7 +32,6 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import org.junit.Assert;
-
 import org.junit.Test;
 
 import org.apache.catalina.Context;
@@ -482,7 +481,6 @@ public class TestExpiresFilter extends TomcatBaseTest {
 
             Assert.assertNotNull(actualMaxAgeInSeconds);
 
-            @SuppressWarnings("null")
             int deltaInSeconds = Math.abs(actualMaxAgeInSeconds.intValue() -
                     expectedMaxAgeInSeconds.intValue());
             Assert.assertTrue("actualMaxAgeInSeconds: " +

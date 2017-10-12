@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.jasper;
 
 import java.io.BufferedReader;
@@ -30,7 +29,6 @@ import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.io.Reader;
 import java.io.Writer;
-import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.ArrayList;
@@ -130,6 +128,8 @@ public class JspC extends Task implements Options {
     protected static final String SWITCH_VALIDATE_XML = "-validateXml";
     protected static final String SWITCH_BLOCK_EXTERNAL = "-blockExternal";
     protected static final String SWITCH_NO_BLOCK_EXTERNAL = "-no-blockExternal";
+    protected static final String SWITCH_QUOTE_ATTRIBUTE_EL = "-quoteAttributeEL";
+    protected static final String SWITCH_NO_QUOTE_ATTRIBUTE_EL = "-no-quoteAttributeEL";
     protected static final String SHOW_SUCCESS ="-s";
     protected static final String LIST_ERRORS = "-l";
     protected static final int INC_WEBXML = 10;
@@ -157,12 +157,13 @@ public class JspC extends Task implements Options {
     }
 
     protected String classPath = null;
-    protected URLClassLoader loader = null;
+    protected ClassLoader loader = null;
     protected boolean trimSpaces = false;
     protected boolean genStringAsCharArray = false;
     protected boolean validateTld;
     protected boolean validateXml;
     protected boolean blockExternal = true;
+    protected boolean quoteAttributeEL = true;
     protected boolean xpoweredBy;
     protected boolean mappedFile = false;
     protected boolean poolingEnabled = true;
@@ -193,6 +194,11 @@ public class JspC extends Task implements Options {
      * Default is true to preserve old behavior.
      */
     protected boolean failOnError = true;
+
+    /**
+     * Should a separate process be forked to perform the compilation?
+     */
+    private boolean fork = false;
 
     /**
      * The file extensions to be handled as JSP files.
@@ -378,6 +384,10 @@ public class JspC extends Task implements Options {
                 setBlockExternal(true);
             } else if (tok.equals(SWITCH_NO_BLOCK_EXTERNAL)) {
                 setBlockExternal(false);
+            } else if (tok.equals(SWITCH_QUOTE_ATTRIBUTE_EL)) {
+                setQuoteAttributeEL(true);
+            } else if (tok.equals(SWITCH_NO_QUOTE_ATTRIBUTE_EL)) {
+                setQuoteAttributeEL(false);
             } else {
                 if (tok.startsWith("-")) {
                     throw new JasperException("Unrecognized option: " + tok +
@@ -420,7 +430,9 @@ public class JspC extends Task implements Options {
     }
 
     /**
-     * Sets the option to trim white spaces between directives or actions.
+     * Sets the option to remove template text that consists entirely of
+     * whitespace.
+     *
      */
     public void setTrimSpaces(boolean ts) {
         this.trimSpaces = ts;
@@ -497,6 +509,10 @@ public class JspC extends Task implements Options {
     @Override
     public boolean getMappedFile() {
         return mappedFile;
+    }
+
+    public void setMappedFile(boolean b) {
+        mappedFile = b;
     }
 
     /**
@@ -750,7 +766,11 @@ public class JspC extends Task implements Options {
      */
     @Override
     public boolean getFork() {
-        return false;
+        return fork;
+    }
+
+    public void setFork(boolean fork) {
+        this.fork = fork;
     }
 
     /**
@@ -879,6 +899,15 @@ public class JspC extends Task implements Options {
 
     public boolean isBlockExternal() {
         return blockExternal;
+    }
+
+    public void setQuoteAttributeEL(boolean b) {
+        quoteAttributeEL = b;
+    }
+
+    @Override
+    public boolean getQuoteAttributeEL() {
+        return quoteAttributeEL;
     }
 
     public void setListErrors( boolean b ) {
@@ -1042,78 +1071,109 @@ public class JspC extends Task implements Options {
         String insertEndMarker =
             Localizer.getMessage("jspc.webinc.insertEnd");
 
-        BufferedReader reader = new BufferedReader(openWebxmlReader(webXml));
-        BufferedReader fragmentReader = new BufferedReader(
-                openWebxmlReader(new File(webxmlFile)));
-        PrintWriter writer = new PrintWriter(openWebxmlWriter(webXml2));
-
-        // Insert the <servlet> and <servlet-mapping> declarations
-        boolean inserted = false;
-        int current = reader.read();
-        while (current > -1) {
-            if (current == '<') {
-                String element = getElement(reader);
-                if (!inserted && insertBefore.contains(element)) {
-                    // Insert generated content here
-                    writer.println(insertStartMarker);
-                    while (true) {
-                        String line = fragmentReader.readLine();
-                        if (line == null) {
-                            writer.println();
-                            break;
-                        }
-                        writer.println(line);
-                    }
-                    writer.println(insertEndMarker);
-                    writer.println();
-                    writer.write(element);
-                    inserted = true;
-                } else if (element.equals(insertStartMarker)) {
-                    // Skip the previous auto-generated content
-                    while (true) {
-                        current = reader.read();
-                        if (current < 0) {
-                            throw new EOFException();
-                        }
-                        if (current == '<') {
-                            element = getElement(reader);
-                            if (element.equals(insertEndMarker)) {
+        BufferedReader reader = null;
+        BufferedReader fragmentReader = null;
+        PrintWriter writer = null;
+        try {
+            reader = new BufferedReader(openWebxmlReader(webXml));
+            fragmentReader = new BufferedReader(openWebxmlReader(new File(webxmlFile)));
+            writer = new PrintWriter(openWebxmlWriter(webXml2));
+            // Insert the <servlet> and <servlet-mapping> declarations
+            boolean inserted = false;
+            int current = reader.read();
+            while (current > -1) {
+                if (current == '<') {
+                    String element = getElement(reader);
+                    if (!inserted && insertBefore.contains(element)) {
+                        // Insert generated content here
+                        writer.println(insertStartMarker);
+                        while (true) {
+                            String line = fragmentReader.readLine();
+                            if (line == null) {
+                                writer.println();
                                 break;
                             }
+                            writer.println(line);
                         }
-                    }
-                    current = reader.read();
-                    while (current == '\n' || current == '\r') {
+                        writer.println(insertEndMarker);
+                        writer.println();
+                        writer.write(element);
+                        inserted = true;
+                    } else if (element.equals(insertStartMarker)) {
+                        // Skip the previous auto-generated content
+                        while (true) {
+                            current = reader.read();
+                            if (current < 0) {
+                                throw new EOFException();
+                            }
+                            if (current == '<') {
+                                element = getElement(reader);
+                                if (element.equals(insertEndMarker)) {
+                                    break;
+                                }
+                            }
+                        }
                         current = reader.read();
+                        while (current == '\n' || current == '\r') {
+                            current = reader.read();
+                        }
+                        continue;
+                    } else {
+                        writer.write(element);
                     }
-                    continue;
                 } else {
-                    writer.write(element);
+                    writer.write(current);
                 }
-            } else {
-                writer.write(current);
+                current = reader.read();
             }
-            current = reader.read();
-        }
-        writer.close();
-
-        reader.close();
-        fragmentReader.close();
-
-        FileInputStream fis = new FileInputStream(webXml2);
-        FileOutputStream fos = new FileOutputStream(webXml);
-
-        byte buf[] = new byte[512];
-        while (true) {
-            int n = fis.read(buf);
-            if (n < 0) {
-                break;
+        } finally {
+            if (writer != null) {
+                try {
+                    writer.close();
+                } catch (Exception e) {
+                }
             }
-            fos.write(buf, 0, n);
+            if (reader != null) {
+                try {
+                    reader.close();
+                } catch (Exception e) {
+                }
+            }
+            if (fragmentReader != null) {
+                try {
+                    fragmentReader.close();
+                } catch (Exception e) {
+                }
+            }
         }
 
-        fis.close();
-        fos.close();
+        FileInputStream fis = null;
+        FileOutputStream fos = null;
+        try {
+            fis = new FileInputStream(webXml2);
+            fos = new FileOutputStream(webXml);
+            byte buf[] = new byte[512];
+            while (true) {
+                int n = fis.read(buf);
+                if (n < 0) {
+                    break;
+                }
+                fos.write(buf, 0, n);
+            }
+        } finally {
+            if (fis != null) {
+                try {
+                    fis.close();
+                } catch (Exception e) {
+                }
+            }
+            if (fos != null) {
+                try {
+                    fos.close();
+                } catch (Exception e) {
+                }
+            }
+        }
 
         if(!webXml2.delete() && log.isDebugEnabled())
             log.debug(Localizer.getMessage("jspc.delete.fail",
@@ -1192,9 +1252,6 @@ public class JspC extends Task implements Options {
             }
 
             originalClassLoader = Thread.currentThread().getContextClassLoader();
-            if( loader==null ) {
-                initClassLoader( clctxt );
-            }
             Thread.currentThread().setContextClassLoader(loader);
 
             clctxt.setClassLoader(loader);
@@ -1326,8 +1383,11 @@ public class JspC extends Task implements Options {
                     Localizer.getMessage("jsp.error.jspc.uriroot_not_dir"));
             }
 
-            if(context == null) {
-                initServletContext();
+            if (loader == null) {
+                loader = initClassLoader();
+            }
+            if (context == null) {
+                initServletContext(loader);
             }
 
             // No explicit pages, we'll process all .jsp in the webapp
@@ -1339,7 +1399,7 @@ public class JspC extends Task implements Options {
 
             Iterator<String> iter = pages.iterator();
             while (iter.hasNext()) {
-                String nextjsp = iter.next().toString();
+                String nextjsp = iter.next();
                 File fjsp = new File(nextjsp);
                 if (!fjsp.isAbsolute()) {
                     fjsp = new File(uriRootF, nextjsp);
@@ -1450,15 +1510,12 @@ public class JspC extends Task implements Options {
         }
     }
 
-    protected void initServletContext() {
-        try {
-            context =new JspCServletContext
-                (new PrintWriter(System.out),
-                 new URL("file:" + uriRoot.replace('\\','/') + '/'));
-            tldLocationsCache = TldLocationsCache.getInstance(context);
-        } catch (MalformedURLException me) {
-            System.out.println("**" + me);
-        }
+    protected void initServletContext(ClassLoader classLoader)
+            throws IOException, JasperException {
+        // TODO: should we use the Ant Project's log?
+        PrintWriter log = new PrintWriter(System.out);
+        URL resourceBase = new File(uriRoot).getCanonicalFile().toURI().toURL();
+        context = new JspCServletContext(log, resourceBase, classLoader);
         if (isValidateTld()) {
             context.setInitParameter(Constants.XML_VALIDATION_TLD_INIT_PARAM, "true");
         }
@@ -1468,6 +1525,7 @@ public class JspC extends Task implements Options {
         context.setInitParameter(Constants.XML_BLOCK_EXTERNAL_INIT_PARAM,
                 String.valueOf(isBlockExternal()));
 
+        tldLocationsCache = TldLocationsCache.getInstance(context);
         rctxt = new JspRuntimeContext(context, this);
         jspConfig = new JspConfig(context);
         tagPluginManager = new TagPluginManager(context);
@@ -1477,11 +1535,9 @@ public class JspC extends Task implements Options {
      * Initializes the classloader as/if needed for the given
      * compilation context.
      *
-     * @param clctxt The compilation context
      * @throws IOException If an error occurs
      */
-    protected void initClassLoader(JspCompilationContext clctxt)
-        throws IOException {
+    protected ClassLoader initClassLoader() throws IOException {
 
         classPath = getClassPath();
 
@@ -1526,39 +1582,37 @@ public class JspC extends Task implements Options {
             File lib = new File(webappBase, "/WEB-INF/lib");
             if (lib.exists() && lib.isDirectory()) {
                 String[] libs = lib.list();
-                for (int i = 0; i < libs.length; i++) {
-                    if( libs[i].length() <5 ) continue;
-                    String ext=libs[i].substring( libs[i].length() - 4 );
-                    if (! ".jar".equalsIgnoreCase(ext)) {
-                        if (".tld".equalsIgnoreCase(ext)) {
-                            log.warn("TLD files should not be placed in "
-                                     + "/WEB-INF/lib");
+                if (libs != null) {
+                    for (int i = 0; i < libs.length; i++) {
+                        if( libs[i].length() <5 ) continue;
+                        String ext=libs[i].substring( libs[i].length() - 4 );
+                        if (! ".jar".equalsIgnoreCase(ext)) {
+                            if (".tld".equalsIgnoreCase(ext)) {
+                                log.warn("TLD files should not be placed in "
+                                         + "/WEB-INF/lib");
+                            }
+                            continue;
                         }
-                        continue;
-                    }
-                    try {
-                        File libFile = new File(lib, libs[i]);
-                        classPath = classPath + File.pathSeparator
-                            + libFile.getAbsolutePath();
-                        urls.add(libFile.getAbsoluteFile().toURI().toURL());
-                    } catch (IOException ioe) {
-                        // failing a toCanonicalPath on a file that
-                        // exists() should be a JVM regression test,
-                        // therefore we have permission to freak out
-                        throw new RuntimeException(ioe.toString());
+                        try {
+                            File libFile = new File(lib, libs[i]);
+                            classPath = classPath + File.pathSeparator
+                                + libFile.getAbsolutePath();
+                            urls.add(libFile.getAbsoluteFile().toURI().toURL());
+                        } catch (IOException ioe) {
+                            // failing a toCanonicalPath on a file that
+                            // exists() should be a JVM regression test,
+                            // therefore we have permission to freak out
+                            throw new RuntimeException(ioe.toString());
+                        }
                     }
                 }
             }
         }
 
-        // What is this ??
-        urls.add(new File(
-                clctxt.getRealPath("/")).getCanonicalFile().toURI().toURL());
-
         URL urlsA[]=new URL[urls.size()];
         urls.toArray(urlsA);
         loader = new URLClassLoader(urlsA, this.getClass().getClassLoader());
-        context.setClassLoader(loader);
+        return loader;
     }
 
     /**

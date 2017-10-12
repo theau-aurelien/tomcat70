@@ -28,6 +28,7 @@ import java.util.Properties;
 import java.util.concurrent.atomic.AtomicInteger;
 
 
+
 import org.apache.juli.logging.Log;
 import org.apache.juli.logging.LogFactory;
 
@@ -73,7 +74,7 @@ public class PoolProperties implements PoolConfiguration, Cloneable, Serializabl
     private volatile String name = "Tomcat Connection Pool["+(poolCounter.addAndGet(1))+"-"+System.identityHashCode(PoolProperties.class)+"]";
     private volatile String password;
     private volatile String username;
-    private volatile long validationInterval = 30000;
+    private volatile long validationInterval = 3000;
     private volatile boolean jmxEnabled = true;
     private volatile String initSQL;
     private volatile boolean testOnConnect =false;
@@ -94,7 +95,7 @@ public class PoolProperties implements PoolConfiguration, Cloneable, Serializabl
     private volatile boolean logValidationErrors = false;
     private volatile boolean propagateInterruptState = false;
     private volatile boolean ignoreExceptionOnPreLoad = false;
-
+    private volatile boolean useStatementFacade = true;
 
     /**
      * {@inheritDoc}
@@ -480,8 +481,8 @@ public class PoolProperties implements PoolConfiguration, Cloneable, Serializabl
                 //always add the trap interceptor to the mix
                 definitions[0] = new InterceptorDefinition(TrapException.class);
                 for (int i=0; i<interceptorValues.length; i++) {
-                    int propIndex = interceptorValues[i].indexOf("(");
-                    int endIndex = interceptorValues[i].indexOf(")");
+                    int propIndex = interceptorValues[i].indexOf('(');
+                    int endIndex = interceptorValues[i].indexOf(')');
                     if (propIndex<0 || endIndex<0 || endIndex <= propIndex) {
                         definitions[i+1] = new InterceptorDefinition(interceptorValues[i].trim());
                     } else {
@@ -490,7 +491,7 @@ public class PoolProperties implements PoolConfiguration, Cloneable, Serializabl
                         String propsAsString = interceptorValues[i].substring(propIndex+1, interceptorValues[i].length()-1);
                         String[] props = propsAsString.split(",");
                         for (int j=0; j<props.length; j++) {
-                            int pidx = props[j].indexOf("=");
+                            int pidx = props[j].indexOf('=');
                             String propName = props[j].substring(0,pidx).trim();
                             String propValue = props[j].substring(pidx+1).trim();
                             definitions[i+1].addProperty(new InterceptorProperty(propName,propValue));
@@ -926,9 +927,11 @@ public class PoolProperties implements PoolConfiguration, Cloneable, Serializabl
     }
 
 
-    public static class InterceptorDefinition {
+    public static class InterceptorDefinition implements Serializable {
+        private static final long serialVersionUID = 1L;
         protected String className;
-        protected Map<String,InterceptorProperty> properties = new HashMap<String,InterceptorProperty>();
+        protected Map<String,InterceptorProperty> properties =
+                new HashMap<String,InterceptorProperty>();
         protected volatile Class<?> clazz = null;
         public InterceptorDefinition(String className) {
             this.className = className;
@@ -958,7 +961,7 @@ public class PoolProperties implements PoolConfiguration, Cloneable, Serializabl
         @SuppressWarnings("unchecked")
         public Class<? extends JdbcInterceptor> getInterceptorClass() throws ClassNotFoundException {
             if (clazz==null) {
-                if (getClassName().indexOf(".")<0) {
+                if (getClassName().indexOf('.')<0) {
                     if (log.isDebugEnabled()) {
                         log.debug("Loading interceptor class:"+PoolConfiguration.PKG_PREFIX+getClassName());
                     }
@@ -974,7 +977,8 @@ public class PoolProperties implements PoolConfiguration, Cloneable, Serializabl
         }
     }
 
-    public static class InterceptorProperty {
+    public static class InterceptorProperty implements Serializable {
+        private static final long serialVersionUID = 1L;
         String name;
         String value;
         public InterceptorProperty(String name, String value) {
@@ -1288,6 +1292,22 @@ public class PoolProperties implements PoolConfiguration, Cloneable, Serializabl
     @Override
     public void setIgnoreExceptionOnPreLoad(boolean ignoreExceptionOnPreLoad) {
         this.ignoreExceptionOnPreLoad = ignoreExceptionOnPreLoad;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public boolean getUseStatementFacade() {
+        return useStatementFacade;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void setUseStatementFacade(boolean useStatementFacade) {
+        this.useStatementFacade = useStatementFacade;
     }
 
     @Override

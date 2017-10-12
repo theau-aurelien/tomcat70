@@ -131,14 +131,15 @@ public final class Request {
     private Cookies cookies = new Cookies(headers);
     private Parameters parameters = new Parameters();
 
-    private MessageBytes remoteUser=MessageBytes.newInstance();
-    private MessageBytes authType=MessageBytes.newInstance();
-    private HashMap<String,Object> attributes=new HashMap<String,Object>();
+    private MessageBytes remoteUser = MessageBytes.newInstance();
+    private boolean remoteUserNeedsAuthorization = false;
+    private MessageBytes authType = MessageBytes.newInstance();
+    private HashMap<String,Object> attributes = new HashMap<String,Object>();
 
     private Response response;
     private ActionHook hook;
 
-    private int bytesRead=0;
+    private long bytesRead=0;
     // Time of the request - useful to avoid repeated calls to System.currentTime
     private long startTime = -1;
     private int available = 0;
@@ -383,6 +384,14 @@ public final class Request {
         return remoteUser;
     }
 
+    public boolean getRemoteUserNeedsAuthorization() {
+        return remoteUserNeedsAuthorization;
+    }
+
+    public void setRemoteUserNeedsAuthorization(boolean remoteUserNeedsAuthorization) {
+        this.remoteUserNeedsAuthorization = remoteUserNeedsAuthorization;
+    }
+
     public MessageBytes getAuthType() {
         return authType;
     }
@@ -395,8 +404,15 @@ public final class Request {
         this.available = available;
     }
 
-    // -------------------- Input Buffer --------------------
+    public boolean getSupportsRelativeRedirects() {
+        if (protocol().equals("") || protocol().equals("HTTP/1.0")) {
+            return false;
+        }
+        return true;
+    }
 
+
+    // -------------------- Input Buffer --------------------
 
     public InputBuffer getInputBuffer() {
         return inputBuffer;
@@ -505,6 +521,7 @@ public final class Request {
 
         instanceId.recycle();
         remoteUser.recycle();
+        remoteUserNeedsAuthorization = false;
         authType.recycle();
         attributes.clear();
 
@@ -520,7 +537,7 @@ public final class Request {
         return reqProcessorMX;
     }
 
-    public int getBytesRead() {
+    public long getBytesRead() {
         return bytesRead;
     }
 

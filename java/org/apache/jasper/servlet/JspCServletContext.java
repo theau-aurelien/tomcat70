@@ -23,6 +23,7 @@ import java.io.InputStream;
 import java.io.PrintWriter;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Enumeration;
 import java.util.EventListener;
@@ -32,6 +33,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.Vector;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import javax.servlet.Filter;
 import javax.servlet.FilterRegistration;
@@ -45,7 +47,8 @@ import javax.servlet.SessionCookieConfig;
 import javax.servlet.SessionTrackingMode;
 import javax.servlet.descriptor.JspConfigDescriptor;
 
-import org.apache.jasper.util.ExceptionUtils;
+import org.apache.jasper.JasperException;
+import org.apache.jasper.runtime.ExceptionUtils;
 
 
 /**
@@ -70,7 +73,8 @@ public class JspCServletContext implements ServletContext {
     /**
      * Servlet context initialization parameters.
      */
-    private final ConcurrentHashMap<String,String> myParameters;
+    private final ConcurrentMap<String,String> myParameters =
+            new ConcurrentHashMap<String,String>();
 
 
     /**
@@ -88,7 +92,7 @@ public class JspCServletContext implements ServletContext {
     /**
      * Web application class loader.
      */
-    private ClassLoader loader;
+    private final ClassLoader loader;
 
 
     // ----------------------------------------------------------- Constructors
@@ -99,12 +103,13 @@ public class JspCServletContext implements ServletContext {
      * @param aLogWriter PrintWriter which is used for <code>log()</code> calls
      * @param aResourceBaseURL Resource base URL
      */
-    public JspCServletContext(PrintWriter aLogWriter, URL aResourceBaseURL) {
+    public JspCServletContext(PrintWriter aLogWriter, URL aResourceBaseURL, ClassLoader classLoader)
+            throws JasperException {
 
         myAttributes = new Hashtable<String,Object>();
-        myParameters = new ConcurrentHashMap<String,String>();
         myLogWriter = aLogWriter;
         myResourceBaseURL = aResourceBaseURL;
+        this.loader = classLoader;
 
     }
 
@@ -177,7 +182,7 @@ public class JspCServletContext implements ServletContext {
      */
     @Override
     public Enumeration<String> getInitParameterNames() {
-        return myParameters.keys();
+        return Collections.enumeration(myParameters.keySet());
     }
 
 
@@ -239,17 +244,16 @@ public class JspCServletContext implements ServletContext {
     public String getRealPath(String path) {
 
         if (!myResourceBaseURL.getProtocol().equals("file"))
-            return (null);
+            return null;
         if (!path.startsWith("/"))
-            return (null);
+            return null;
         try {
-            return
-                (getResource(path).getFile().replace('/', File.separatorChar));
+            File f = new File(getResource(path).toURI());
+            return f.getAbsolutePath();
         } catch (Throwable t) {
             ExceptionUtils.handleThrowable(t);
-            return (null);
+            return null;
         }
-
     }
             
             
@@ -340,6 +344,9 @@ public class JspCServletContext implements ServletContext {
         if (!theBaseDir.exists() || !theBaseDir.isDirectory())
             return (thePaths);
         String theFiles[] = theBaseDir.list();
+        if (theFiles == null) {
+            return thePaths;
+        }
         for (int i = 0; i < theFiles.length; i++) {
             File testFile = new File(basePath + File.separator + theFiles[i]);
             if (testFile.isFile())
@@ -622,11 +629,6 @@ public class JspCServletContext implements ServletContext {
     @Override
     public ClassLoader getClassLoader() {
         return loader;
-    }
-
-
-    public void setClassLoader(ClassLoader loader) {
-        this.loader = loader;
     }
 
 

@@ -58,7 +58,7 @@ public class SocketProperties {
 
     /**
      * Enable/disable direct buffers for the network buffers
-     * Default value is enabled
+     * Default value is disabled
      */
     protected boolean directBuffer = false;
 
@@ -136,7 +136,7 @@ public class SocketProperties {
     /**
      * SO_TIMEOUT option. default is 20000.
      */
-    protected Integer soTimeout = new Integer(20000);
+    protected Integer soTimeout = Integer.valueOf(20000);
 
     /**
      * Performance preferences according to

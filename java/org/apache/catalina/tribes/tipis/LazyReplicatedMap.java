@@ -29,8 +29,8 @@ import org.apache.juli.logging.LogFactory;
 /**
  * A smart implementation of a stateful replicated map. uses primary/secondary backup strategy. 
  * One node is always the primary and one node is always the backup.
- * This map is synchronized across a cluster, and only has one backup member.<br/>
- * A perfect usage for this map would be a session map for a session manager in a clustered environment.<br/>
+ * This map is synchronized across a cluster, and only has one backup member.<br>
+ * A perfect usage for this map would be a session map for a session manager in a clustered environment.<br>
  * The only way to modify this list is to use the <code>put, putAll, remove</code> methods.
  * entrySet, entrySetFull, keySet, keySetFull, returns all non modifiable sets.<br><br>
  * If objects (values) in the map change without invoking <code>put()</code> or <code>remove()</code>
@@ -57,7 +57,7 @@ import org.apache.juli.logging.LogFactory;
  * each time the object gets replicated the entire object gets serialized, hence a call to <code>replicate(true)</code>
  * will replicate all objects in this map that are using this node as primary.
  * 
- * <br><br><b>REMBER TO CALL <code>breakdown()</code> or <code>finalize()</code> when you are done with the map to 
+ * <br><br><b>REMEMBER TO CALL <code>breakdown()</code> or <code>finalize()</code> when you are done with the map to 
  * avoid memory leaks.<br><br>
  * TODO implement periodic sync/transfer thread
  * @author Filip Hanik
@@ -74,7 +74,7 @@ public class LazyReplicatedMap<K,V> extends AbstractReplicatedMap<K,V> {
     /**
      * Creates a new map
      * @param channel The channel to use for communication
-     * @param timeout long - timeout for RPC messags
+     * @param timeout long - timeout for RPC messages
      * @param mapContextName String - unique name for this map, to allow multiple maps per channel
      * @param initialCapacity int - the size of this map, see HashMap
      * @param loadFactor float - load factor, see HashMap
@@ -86,7 +86,7 @@ public class LazyReplicatedMap<K,V> extends AbstractReplicatedMap<K,V> {
     /**
      * Creates a new map
      * @param channel The channel to use for communication
-     * @param timeout long - timeout for RPC messags
+     * @param timeout long - timeout for RPC messages
      * @param mapContextName String - unique name for this map, to allow multiple maps per channel
      * @param initialCapacity int - the size of this map, see HashMap
      */
@@ -97,7 +97,7 @@ public class LazyReplicatedMap<K,V> extends AbstractReplicatedMap<K,V> {
     /**
      * Creates a new map
      * @param channel The channel to use for communication
-     * @param timeout long - timeout for RPC messags
+     * @param timeout long - timeout for RPC messages
      * @param mapContextName String - unique name for this map, to allow multiple maps per channel
      */
     public LazyReplicatedMap(MapOwner owner, Channel channel, long timeout, String mapContextName, ClassLoader[] cls) {
@@ -107,7 +107,7 @@ public class LazyReplicatedMap<K,V> extends AbstractReplicatedMap<K,V> {
     /**
      * Creates a new map
      * @param channel The channel to use for communication
-     * @param timeout long - timeout for RPC messags
+     * @param timeout long - timeout for RPC messages
      * @param mapContextName String - unique name for this map, to allow multiple maps per channel
      * @param terminate boolean - Flag for whether to terminate this map that failed to start.
      */
@@ -123,6 +123,11 @@ public class LazyReplicatedMap<K,V> extends AbstractReplicatedMap<K,V> {
     @Override
     protected int getStateMessageType() {
         return AbstractReplicatedMap.MapMessage.MSG_STATE;
+    }
+
+    @Override
+    protected int getReplicateMessageType() {
+        return AbstractReplicatedMap.MapMessage.MSG_BACKUP;
     }
 
     /**
@@ -157,19 +162,21 @@ public class LazyReplicatedMap<K,V> extends AbstractReplicatedMap<K,V> {
             }
             MapMessage msg = null;
             try {
-                backup = wrap(next);
+                Member[] tmpBackup = wrap(next);
                 //publish the backup data to one node
                 msg = new MapMessage(getMapContextName(), MapMessage.MSG_BACKUP, false,
-                                     (Serializable) key, (Serializable) value, null, channel.getLocalMember(false), backup);
+                                     (Serializable) key, (Serializable) value, null, channel.getLocalMember(false), tmpBackup);
                 if ( log.isTraceEnabled() ) 
                     log.trace("Publishing backup data:"+msg+" to: "+next.getName());
-                UniqueId id = getChannel().send(backup, msg, getChannelSendOptions());
+                UniqueId id = getChannel().send(tmpBackup, msg, getChannelSendOptions());
                 if ( log.isTraceEnabled() )
                     log.trace("Data published:"+msg+" msg Id:"+id);
                 //we published out to a backup, mark the test success
                 success = true;
+                backup = tmpBackup;
             }catch ( ChannelException x ) {
                 log.error("Unable to replicate backup key:"+key+" to backup:"+next+". Reason:"+x.getMessage(),x);
+                continue;
             }
             try {
                 //publish the data out to all nodes
@@ -178,7 +185,7 @@ public class LazyReplicatedMap<K,V> extends AbstractReplicatedMap<K,V> {
                     msg = new MapMessage(getMapContextName(), MapMessage.MSG_PROXY, false,
                                          (Serializable) key, null, null, channel.getLocalMember(false),backup);
                     if ( log.isTraceEnabled() ) 
-                    log.trace("Publishing proxy data:"+msg+" to: "+Arrays.toNameString(proxies));
+                        log.trace("Publishing proxy data:"+msg+" to: "+Arrays.toNameString(proxies));
                     getChannel().send(proxies, msg, getChannelSendOptions());
                 }
             }catch  ( ChannelException x ) {

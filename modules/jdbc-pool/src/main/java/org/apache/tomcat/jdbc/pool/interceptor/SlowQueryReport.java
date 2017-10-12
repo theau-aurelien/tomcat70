@@ -17,7 +17,9 @@
 package org.apache.tomcat.jdbc.pool.interceptor;
 
 import java.text.SimpleDateFormat;
-import java.util.Iterator;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TimeZone;
@@ -59,6 +61,11 @@ public class SlowQueryReport extends AbstractQueryReport  {
     protected int  maxQueries= 1000; //don't store more than this amount of queries
 
     /**
+     * Sort QueryStats by last invocation time
+     */
+    protected final Comparator<QueryStats> queryStatsComparator = new QueryStatsComparator();
+
+    /**
      * Returns the query stats for a given pool
      * @param poolname - the name of the pool we want to retrieve stats for
      * @return a hash map containing statistics for 0 to maxQueries
@@ -86,10 +93,22 @@ public class SlowQueryReport extends AbstractQueryReport  {
             long now = System.currentTimeMillis();
             long delta = now - start;
             QueryStats qs = this.getQueryStats(sql);
-            qs.failure(delta, now);
+            if (qs != null) {
+                qs.failure(delta, now);
+            }
             if (log.isWarnEnabled()) {
                 log.warn("Failed Query Report SQL="+sql+"; time="+delta+" ms;");
             }
+        }
+        return sql;
+    }
+
+    @Override
+    protected String reportQuery(String query, Object[] args, final String name, long start, long delta) {
+        String sql = super.reportQuery(query, args, name, start, delta);
+        if (this.maxQueries > 0 ) {
+            QueryStats qs = this.getQueryStats(sql);
+            if (qs != null) qs.add(delta, start);
         }
         return sql;
     }
@@ -99,9 +118,11 @@ public class SlowQueryReport extends AbstractQueryReport  {
         String sql = super.reportSlowQuery(query, args, name, start, delta);
         if (this.maxQueries > 0 ) {
             QueryStats qs = this.getQueryStats(sql);
-            qs.add(delta, start);
-            if (log.isWarnEnabled()) {
-                log.warn("Slow Query Report SQL="+sql+"; time="+delta+" ms;");
+            if (qs != null) {
+                qs.add(delta, start);
+                if (log.isWarnEnabled()) {
+                    log.warn("Slow Query Report SQL="+sql+"; time="+delta+" ms;");
+                }
             }
         }
         return sql;
@@ -118,14 +139,18 @@ public class SlowQueryReport extends AbstractQueryReport  {
 
     @Override
     public void prepareStatement(String sql, long time) {
-        QueryStats qs = getQueryStats(sql);
-        qs.prepare(time);
+        if (this.maxQueries > 0 ) {
+            QueryStats qs = getQueryStats(sql);
+            if (qs != null) qs.prepare(time);
+        }
     }
 
     @Override
     public void prepareCall(String sql, long time) {
-        QueryStats qs = getQueryStats(sql);
-        qs.prepare(time);
+        if (this.maxQueries > 0 ) {
+            QueryStats qs = getQueryStats(sql);
+            if (qs != null) qs.prepare(time);
+        }
     }
 
     /**
@@ -160,7 +185,10 @@ public class SlowQueryReport extends AbstractQueryReport  {
     protected QueryStats getQueryStats(String sql) {
         if (sql==null) sql = "";
         ConcurrentHashMap<String,QueryStats> queries = SlowQueryReport.this.queries;
-        if (queries==null) return null;
+        if (queries==null) {
+            if (log.isWarnEnabled()) log.warn("Connection has already been closed or abandoned");
+            return null;
+        }
         QueryStats qs = queries.get(sql);
         if (qs == null) {
             qs = new QueryStats(sql);
@@ -177,15 +205,18 @@ public class SlowQueryReport extends AbstractQueryReport  {
     }
 
     /**
-     * TODO - implement a better algorithm
+     * Sort QueryStats by last invocation time
      * @param queries
      */
     protected void removeOldest(ConcurrentHashMap<String,QueryStats> queries) {
-        Iterator<String> it = queries.keySet().iterator();
-        while (queries.size()>maxQueries && it.hasNext()) {
-            String sql = it.next();
-            it.remove();
+        ArrayList<QueryStats> list = new ArrayList<QueryStats>(queries.values());
+        Collections.sort(list, queryStatsComparator);
+        int removeIndex = 0;
+        while (queries.size() > maxQueries) {
+            String sql = list.get(removeIndex).getQuery();
+            queries.remove(sql);
             if (log.isDebugEnabled()) log.debug("Removing slow query, capacity reached:"+sql);
+            removeIndex++;
         }
     }
 
@@ -416,5 +447,31 @@ public class SlowQueryReport extends AbstractQueryReport  {
         }
     }
 
+    /** Compare QueryStats by their lastInvocation value. QueryStats that
+     * have never been updated, have a lastInvocation value of {@code 0}
+     * which should be handled as the newest possible invocation.
+     */
+    private static class QueryStatsComparator implements Comparator<QueryStats> {
+
+        @Override
+        public int compare(QueryStats stats1, QueryStats stats2) {
+            return compare(handleZero(stats1.lastInvocation),
+                    handleZero(stats2.lastInvocation));
+        }
+
+        private static long handleZero(long value) {
+            return value == 0 ? Long.MAX_VALUE : value;
+        }
+
+        private static int compare(long a, long b) {
+            if (a < b) {
+                return -1;
+            } else if (a > b) {
+                return 1;
+            } else {
+                return 0;
+            }
+        }
+    }
 
 }

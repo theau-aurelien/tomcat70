@@ -26,9 +26,11 @@ import javax.servlet.RequestDispatcher;
 import javax.servlet.SessionTrackingMode;
 import javax.servlet.http.HttpServletResponse;
 
+import org.apache.catalina.Authenticator;
 import org.apache.catalina.Context;
 import org.apache.catalina.Host;
 import org.apache.catalina.Wrapper;
+import org.apache.catalina.authenticator.AuthenticatorBase;
 import org.apache.catalina.comet.CometEvent;
 import org.apache.catalina.comet.CometEvent.EventType;
 import org.apache.catalina.core.AsyncContextImpl;
@@ -76,7 +78,7 @@ public class CoyoteAdapter implements Adapter {
 
 
     protected static final boolean ALLOW_BACKSLASH =
-        Boolean.valueOf(System.getProperty("org.apache.catalina.connector.CoyoteAdapter.ALLOW_BACKSLASH", "false")).booleanValue();
+        Boolean.parseBoolean(System.getProperty("org.apache.catalina.connector.CoyoteAdapter.ALLOW_BACKSLASH", "false"));
 
 
     // ----------------------------------------------------------- Constructors
@@ -271,31 +273,40 @@ public class CoyoteAdapter implements Adapter {
         }
         boolean comet = false;
         boolean success = true;
-        AsyncContextImpl asyncConImpl = (AsyncContextImpl)request.getAsyncContext();
+        AsyncContextImpl asyncConImpl = request.getAsyncContextInternal();
         req.getRequestProcessor().setWorkerThreadName(Thread.currentThread().getName());
         try {
             if (!request.isAsync() && !comet) {
-                // Error or timeout - need to tell listeners the request is over
-                // Have to test this first since state may change while in this
-                // method and this is only required if entering this method in
-                // this state
-                Context ctxt = (Context) request.getMappingData().context;
-                if (ctxt != null) {
-                    ctxt.fireRequestDestroyEvent(request);
-                }
+                // Error or timeout
                 // Lift any suspension (e.g. if sendError() was used by an async
                 // request) to allow the response to be written to the client
                 response.setSuspended(false);
             }
 
             if (status==SocketStatus.TIMEOUT) {
-                success = true;
                 if (!asyncConImpl.timeout()) {
                     asyncConImpl.setErrorState(null, false);
                 }
+            } else if (status==SocketStatus.ERROR) {
+                // An I/O error occurred on a non-container thread which means
+                // that the socket needs to be closed so set success to false to
+                // trigger a close
+                success = false;
+                Throwable t = (Throwable)req.getAttribute(RequestDispatcher.ERROR_EXCEPTION);
+                req.getAttributes().remove(RequestDispatcher.ERROR_EXCEPTION);
+                if (t != null) {
+                    asyncConImpl.setErrorState(t, true);
+                }
             }
+            // Has an error occurred during async processing that needs to be
+            // processed by the application's error page mechanism (or Tomcat's
+            // if the application doesn't define one)?
+            if (!request.isAsyncDispatching() && request.isAsync() &&
+                    response.isErrorReportRequired()) {
+                connector.getService().getContainer().getPipeline().getFirst().invoke(request, response);
+            }
+
             if (request.isAsyncDispatching()) {
-                success = true;
                 connector.getService().getContainer().getPipeline().getFirst().invoke(request, response);
                 Throwable t = (Throwable) request.getAttribute(
                         RequestDispatcher.ERROR_EXCEPTION);
@@ -311,6 +322,8 @@ public class CoyoteAdapter implements Adapter {
                         if (event(req, res, SocketStatus.OPEN_READ)) {
                             comet = true;
                             res.action(ActionCode.COMET_BEGIN, null);
+                        } else {
+                            return false;
                         }
                     } else {
                         comet = true;
@@ -323,15 +336,38 @@ public class CoyoteAdapter implements Adapter {
                 }
             }
             if (!request.isAsync() && !comet) {
-                request.finishRequest();
-                response.finishResponse();
-                req.action(ActionCode.POST_REQUEST , null);
-                ((Context) request.getMappingData().context).logAccess(
-                        request, response,
-                        System.currentTimeMillis() - req.getStartTime(),
-                        false);
+                try {
+                    request.finishRequest();
+                    response.finishResponse();
+                } finally {
+                    long time = 0;
+                    if (req.getStartTime() != -1) {
+                        time = System.currentTimeMillis() - req.getStartTime();
+                    }
+                    if (request.getMappingData().context != null) {
+                        ((Context) request.getMappingData().context).logAccess(
+                                request, response, time, false);
+                    } else {
+                        log(req, res, time);
+                    }
+
+                    req.action(ActionCode.POST_REQUEST , null);
+                }
             }
 
+            // Check to see if the processor is in an error state. If it is,
+            // bail out now.
+            AtomicBoolean error = new AtomicBoolean(false);
+            res.action(ActionCode.IS_ERROR, error);
+            if (error.get()) {
+                if (request.isAsyncCompleting()) {
+                    // Connection will be forcibly closed which will prevent
+                    // completion happening at the usual point. Need to trigger
+                    // call to onComplete() here.
+                    res.action(ActionCode.ASYNC_POST_PROCESS,  null);
+                }
+                success = false;
+            }
         } catch (IOException e) {
             success = false;
             // Ignore
@@ -354,6 +390,7 @@ public class CoyoteAdapter implements Adapter {
         }
         return success;
     }
+
 
     /**
      * Service method.
@@ -394,13 +431,13 @@ public class CoyoteAdapter implements Adapter {
 
         boolean comet = false;
         boolean async = false;
+        boolean postParseSuccess = false;
 
         try {
-
             // Parse and set Catalina and configuration specific
             // request parameters
             req.getRequestProcessor().setWorkerThreadName(Thread.currentThread().getName());
-            boolean postParseSuccess = postParseRequest(req, request, res, response);
+            postParseSuccess = postParseRequest(req, request, res, response);
             if (postParseSuccess) {
                 //check valves if we support async
                 request.setAsyncSupported(connector.getService().getContainer().getPipeline().isAsyncSupported());
@@ -414,6 +451,8 @@ public class CoyoteAdapter implements Adapter {
                             if (event(req, res, SocketStatus.OPEN_READ)) {
                                 comet = true;
                                 res.action(ActionCode.COMET_BEGIN, null);
+                            } else {
+                                return;
                             }
                         } else {
                             comet = true;
@@ -427,34 +466,53 @@ public class CoyoteAdapter implements Adapter {
                 }
 
             }
-            AsyncContextImpl asyncConImpl = (AsyncContextImpl)request.getAsyncContext();
-            if (asyncConImpl != null) {
+            if (request.isAsync()) {
                 async = true;
-            } else if (!comet) {
-                request.finishRequest();
-                response.finishResponse();
-                if (postParseSuccess &&
-                        request.getMappingData().context != null) {
-                    // Log only if processing was invoked.
-                    // If postParseRequest() failed, it has already logged it.
-                    // If context is null this was the start of a comet request
-                    // that failed and has already been logged.
-                    ((Context) request.getMappingData().context).logAccess(
-                            request, response,
-                            System.currentTimeMillis() - req.getStartTime(),
-                            false);
-                }
-                req.action(ActionCode.POST_REQUEST , null);
-            }
+                Throwable throwable =
+                        (Throwable) request.getAttribute(RequestDispatcher.ERROR_EXCEPTION);
 
+                // If an async request was started, is not going to end once
+                // this container thread finishes and an error occurred, trigger
+                // the async error process
+                if (!request.isAsyncCompleting() && throwable != null) {
+                    request.getAsyncContextInternal().setErrorState(throwable, true);
+                }
+            } else if (!comet) {
+                try {
+                    request.finishRequest();
+                    response.finishResponse();
+                } finally {
+                    if (postParseSuccess) {
+                        // Log only if processing was invoked.
+                        // If postParseRequest() failed, it has already logged it.
+                        // If context is null this was the start of a comet request
+                        // that failed and has already been logged.
+                        ((Context) request.getMappingData().context).logAccess(
+                                request, response,
+                                System.currentTimeMillis() - req.getStartTime(),
+                                false);
+                    }
+                    req.action(ActionCode.POST_REQUEST , null);
+                }
+            }
         } catch (IOException e) {
             // Ignore
         } finally {
-            req.getRequestProcessor().setWorkerThreadName(null);
             AtomicBoolean error = new AtomicBoolean(false);
             res.action(ActionCode.IS_ERROR, error);
+
+            if (request.isAsyncCompleting() && error.get()) {
+                // Connection will be forcibly closed which will prevent
+                // completion happening at the usual point. Need to trigger
+                // call to onComplete() here.
+                res.action(ActionCode.ASYNC_POST_PROCESS,  null);
+                async = false;
+            }
+
+            req.getRequestProcessor().setWorkerThreadName(null);
+
             // Recycle the wrapper request and response
-            if (!comet && !async || error.get()) {
+            if (!comet && !async) {
                 request.recycle();
                 response.recycle();
             } else {
@@ -464,7 +522,34 @@ public class CoyoteAdapter implements Adapter {
                 response.clearEncoders();
             }
         }
+    }
 
+
+    @Override
+    public void errorDispatch(org.apache.coyote.Request req,
+            org.apache.coyote.Response res) {
+        Request request = (Request) req.getNote(ADAPTER_NOTES);
+        Response response = (Response) res.getNote(ADAPTER_NOTES);
+
+        if (request != null && request.getMappingData().context != null) {
+            ((Context) request.getMappingData().context).logAccess(
+                    request, response,
+                    System.currentTimeMillis() - req.getStartTime(),
+                    false);
+        } else {
+            log(req, res, System.currentTimeMillis() - req.getStartTime());
+        }
+
+        if (request != null) {
+            request.recycle();
+        }
+
+        if (response != null) {
+            response.recycle();
+        }
+
+        req.recycle();
+        res.recycle();
     }
 
 
@@ -581,7 +666,7 @@ public class CoyoteAdapter implements Adapter {
             throws Exception {
 
         // XXX the processor may have set a correct scheme and port prior to this point,
-        // in ajp13 protocols dont make sense to get the port from the connector...
+        // in ajp13 protocols don't make sense to get the port from the connector...
         // otherwise, use connector configuration
         if (! req.scheme().isNull()) {
             // use processor specified scheme to determine secure state
@@ -593,7 +678,7 @@ public class CoyoteAdapter implements Adapter {
             request.setSecure(connector.getSecure());
         }
 
-        // FIXME: the code below doesnt belongs to here,
+        // FIXME: the code below doesn't belongs to here,
         // this is only have sense
         // in Http11, not in ajp13..
         // At this point the Host header has been processed.
@@ -646,18 +731,6 @@ public class CoyoteAdapter implements Adapter {
             return false;
         }
 
-        // Set the remote principal
-        String principal = req.getRemoteUser().toString();
-        if (principal != null) {
-            request.setUserPrincipal(new CoyotePrincipal(principal));
-        }
-
-        // Set the authorization type
-        String authtype = req.getAuthType().toString();
-        if (authtype != null) {
-            request.setAuthType(authtype);
-        }
-
         // Request mapping.
         MessageBytes serverName;
         if (connector.getUseIPVHosts()) {
@@ -675,24 +748,18 @@ public class CoyoteAdapter implements Adapter {
             request.getMappingData().recycle();
         }
 
-        boolean mapRequired = true;
+        // Version for the second mapping loop and
+        // Context that we expect to get for that version
         String version = null;
+        Context versionContext = null;
+        boolean mapRequired = true;
 
         while (mapRequired) {
-            if (version != null) {
-                // Once we have a version - that is it
-                mapRequired = false;
-            }
             // This will map the the latest version by default
             connector.getMapper().map(serverName, decodedURI, version,
                                       request.getMappingData());
             request.setContext((Context) request.getMappingData().context);
             request.setWrapper((Wrapper) request.getMappingData().wrapper);
-
-            // Single contextVersion therefore no possibility of remap
-            if (request.getMappingData().contexts == null) {
-                mapRequired = false;
-            }
 
             // If there is no context at this point, it is likely no ROOT context
             // has been deployed
@@ -711,7 +778,7 @@ public class CoyoteAdapter implements Adapter {
             // Now we have the context, we can parse the session ID from the URL
             // (if any). Need to do this before we redirect in case we need to
             // include the session id in the redirect
-            String sessionID = null;
+            String sessionID;
             if (request.getServletContext().getEffectiveSessionTrackingModes()
                     .contains(SessionTrackingMode.URL)) {
 
@@ -731,35 +798,41 @@ public class CoyoteAdapter implements Adapter {
 
             sessionID = request.getRequestedSessionId();
 
-            if (mapRequired) {
-                if (sessionID == null) {
-                    // No session means no possibility of needing to remap
-                    mapRequired = false;
-                } else {
+            mapRequired = false;
+            if (version != null && request.getContext() == versionContext) {
+                // We got the version that we asked for. That is it.
+            } else {
+                version = null;
+                versionContext = null;
+
+                Object[] contexts = request.getMappingData().contexts;
+                // Single contextVersion means no need to remap
+                // No session ID means no possibility of remap
+                if (contexts != null && sessionID != null) {
                     // Find the context associated with the session
-                    Object[] objs = request.getMappingData().contexts;
-                    for (int i = (objs.length); i > 0; i--) {
-                        Context ctxt = (Context) objs[i - 1];
+                    for (int i = (contexts.length); i > 0; i--) {
+                        Context ctxt = (Context) contexts[i - 1];
                         if (ctxt.getManager().findSession(sessionID) != null) {
-                            // Was the correct context already mapped?
-                            if (ctxt.equals(request.getMappingData().context)) {
-                                mapRequired = false;
-                            } else {
-                                // Set version so second time through mapping the
-                                // correct context is found
+                            // We found a context. Is it the one that has
+                            // already been mapped?
+                            if (!ctxt.equals(request.getMappingData().context)) {
+                                // Set version so second time through mapping
+                                // the correct context is found
                                 version = ctxt.getWebappVersion();
+                                versionContext = ctxt;
                                 // Reset mapping
                                 request.getMappingData().recycle();
-                                break;
+                                mapRequired = true;
+                                // Recycle session info in case the correct
+                                // context is configured with different settings
+                                request.recycleSessionInfo();
                             }
+                            break;
                         }
-                    }
-                    if (version == null) {
-                        // No matching context found. No need to re-map
-                        mapRequired = false;
                     }
                 }
             }
+
             if (!mapRequired && request.getContext().getPaused()) {
                 // Found a matching context but it is paused. Mapping data will
                 // be wrong since some Wrappers may not be registered at this
@@ -778,7 +851,7 @@ public class CoyoteAdapter implements Adapter {
         // Possible redirect
         MessageBytes redirectPathMB = request.getMappingData().redirectPath;
         if (!redirectPathMB.isNull()) {
-            String redirectPath = urlEncoder.encode(redirectPathMB.toString());
+            String redirectPath = urlEncoder.encode(redirectPathMB.toString(), "UTF-8");
             String query = request.getQueryString();
             if (request.isRequestedSessionIdFromURL()) {
                 // This is not optimal, but as this is not very common, it
@@ -825,7 +898,51 @@ public class CoyoteAdapter implements Adapter {
             return false;
         }
 
+        doConnectorAuthenticationAuthorization(req, request);
+
         return true;
+    }
+
+
+    private void doConnectorAuthenticationAuthorization(org.apache.coyote.Request req, Request request) {
+        // Set the remote principal
+        String username = req.getRemoteUser().toString();
+        if (username != null) {
+            if (log.isDebugEnabled()) {
+                log.debug(sm.getString("coyoteAdapter.authenticate", username));
+            }
+            if (req.getRemoteUserNeedsAuthorization()) {
+                Authenticator authenticator = request.getContext().getAuthenticator();
+                if (authenticator == null) {
+                    // No security constraints configured for the application so
+                    // no need to authorize the user. Use the CoyotePrincipal to
+                    // provide the authenticated user.
+                    request.setUserPrincipal(new CoyotePrincipal(username));
+                } else if (!(authenticator instanceof AuthenticatorBase)) {
+                    if (log.isDebugEnabled()) {
+                        log.debug(sm.getString("coyoteAdapter.authorize", username));
+                    }
+                    // Custom authenticator that may not trigger authorization.
+                    // Do the authorization here to make sure it is done.
+                    request.setUserPrincipal(
+                            request.getContext().getRealm().authenticate(username));
+                }
+                // If the Authenticator is an instance of AuthenticatorBase then
+                // it will check req.getRemoteUserNeedsAuthorization() and
+                // trigger authorization as necessary. It will also cache the
+                // result preventing excessive calls to the Realm.
+            } else {
+                // The connector isn't configured for authorization. Create a
+                // user without any roles using the supplied user name.
+                request.setUserPrincipal(new CoyotePrincipal(username));
+            }
+        }
+
+        // Set the authorization type
+        String authtype = req.getAuthType().toString();
+        if (authtype != null) {
+            request.setAuthType(authtype);
+        }
     }
 
 
@@ -941,18 +1058,20 @@ public class CoyoteAdapter implements Adapter {
                 SSL_ONLY.equals(request.getServletContext()
                         .getEffectiveSessionTrackingModes()) &&
                         request.connector.secure) {
-            // TODO Is there a better way to map SSL sessions to our sesison ID?
+            // TODO Is there a better way to map SSL sessions to our session ID?
             // TODO The request.getAttribute() will cause a number of other SSL
             //      attribute to be populated. Is this a performance concern?
-            request.setRequestedSessionId(
-                    request.getAttribute(SSLSupport.SESSION_ID_KEY).toString());
-            request.setRequestedSessionSSL(true);
+            String sessionId = (String) request.getAttribute(SSLSupport.SESSION_ID_KEY);
+            if (sessionId != null) {
+                request.setRequestedSessionId(sessionId);
+                request.setRequestedSessionSSL(true);
+            }
         }
     }
 
 
     /**
-     * Parse session id in URL.
+     * Parse session id in Cookie.
      */
     protected void parseSessionCookiesId(org.apache.coyote.Request req, Request request) {
 

@@ -33,6 +33,7 @@ import org.apache.catalina.tribes.Channel;
 import org.apache.catalina.tribes.Member;
 import org.apache.catalina.tribes.MembershipListener;
 import org.apache.catalina.tribes.MessageListener;
+import org.apache.catalina.tribes.group.GroupChannel;
 import org.apache.catalina.tribes.io.ChannelData;
 import org.apache.catalina.tribes.io.XByteBuffer;
 import org.apache.catalina.tribes.util.ExecutorFactory;
@@ -149,6 +150,8 @@ public class McastServiceImpl
      * disable/enable local loopback message
      */
     protected boolean localLoopbackDisabled = false;
+
+    private Channel channel;
     
     /**
      * Create a new mcast service impl
@@ -520,11 +523,23 @@ public class McastServiceImpl
         return recoverySleepTime;
     }
 
+    public Channel getChannel() {
+        return channel;
+    }
+
+    public void setChannel(Channel channel) {
+        this.channel = channel;
+    }
+
     public class ReceiverThread extends Thread {
         int errorCounter = 0;
         public ReceiverThread() {
             super();
-            setName("Tribes-MembershipReceiver");
+            String channelName = "";
+            if (channel instanceof GroupChannel && ((GroupChannel)channel).getName() != null) {
+                channelName = "[" + ((GroupChannel)channel).getName() + "]";
+            }
+            setName("Tribes-MembershipReceiver" + channelName);
         }
         @Override
         public void run() {
@@ -560,7 +575,11 @@ public class McastServiceImpl
         int errorCounter=0;
         public SenderThread(long time) {
             this.time = time;
-            setName("Tribes-MembershipSender");
+            String channelName = "";
+            if (channel instanceof GroupChannel && ((GroupChannel)channel).getName() != null) {
+                channelName = "[" + ((GroupChannel)channel).getName() + "]";
+            }
+            setName("Tribes-MembershipSender" + channelName);
 
         }
         @Override
@@ -593,8 +612,12 @@ public class McastServiceImpl
             running = true;
             
             Thread t = new RecoveryThread(parent);
-            
-            t.setName("Tribes-MembershipRecovery");
+            String channelName = "";
+            if (parent.channel instanceof GroupChannel
+                    && ((GroupChannel)parent.channel).getName() != null) {
+                channelName = "[" + ((GroupChannel)parent.channel).getName() + "]";
+            }
+            t.setName("Tribes-MembershipRecovery" + channelName);
             t.setDaemon(true);
             t.start();
         }

@@ -166,23 +166,23 @@ public final class JDBCAccessLogValve extends ValveBase implements AccessLog {
     * Use long contentLength as you have more 4 GB output.
     * @since 6.0.15
     */
-    protected boolean useLongContentLength = false ;
+    boolean useLongContentLength = false ;
 
    /**
      * The connection username to use when trying to connect to the database.
      */
-    protected String connectionName = null;
+    String connectionName = null;
 
 
     /**
      * The connection URL to use when trying to connect to the database.
      */
-    protected String connectionPassword = null;
+    String connectionPassword = null;
 
    /**
      * Instance of the JDBC Driver class we use as a connection factory.
      */
-    protected Driver driver = null;
+    Driver driver = null;
 
 
     private String driverName;
@@ -209,14 +209,17 @@ public final class JDBCAccessLogValve extends ValveBase implements AccessLog {
     private long currentTimeMillis;
 
     /**
+     * Should this valve set request attributes for IP address, hostname,
+     * protocol and port used for the request.
+     * Default is <code>true</code>.
      * @see #setRequestAttributesEnabled(boolean)
      */
-    protected boolean requestAttributesEnabled = true;
+    boolean requestAttributesEnabled = true;
 
     /**
      * The descriptive information about this implementation.
      */
-    protected static final String info =
+    static final String info =
         "org.apache.catalina.valves.JDBCAccessLogValve/1.1";
 
 
@@ -224,6 +227,7 @@ public final class JDBCAccessLogValve extends ValveBase implements AccessLog {
 
     /**
      * {@inheritDoc}
+     * Default is <code>true</code>.
      */
     @Override
     public void setRequestAttributesEnabled(boolean requestAttributesEnabled) {
@@ -423,7 +427,7 @@ public final class JDBCAccessLogValve extends ValveBase implements AccessLog {
      * is desired or not.
      */
     public void setResolveHosts(String resolveHosts) {
-        this.resolveHosts = Boolean.valueOf(resolveHosts).booleanValue();
+        this.resolveHosts = Boolean.parseBoolean(resolveHosts);
     }
 
     /**
@@ -634,7 +638,7 @@ public final class JDBCAccessLogValve extends ValveBase implements AccessLog {
         try {
             conn.close();
         } catch (SQLException e) {
-            container.getLogger().error(sm.getString("jdbcAccessLogValeve.close"), e); // Just log it here
+            container.getLogger().error(sm.getString("jdbcAccessLogValve.close"), e); // Just log it here
         } finally {
            this.conn = null;
         }

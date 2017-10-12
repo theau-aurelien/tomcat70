@@ -21,8 +21,10 @@ import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
+import java.util.Set;
 
 import org.apache.coyote.ActionCode;
+import org.apache.coyote.ErrorState;
 import org.apache.coyote.RequestInfo;
 import org.apache.coyote.http11.filters.BufferedInputFilter;
 import org.apache.juli.logging.Log;
@@ -36,6 +38,7 @@ import org.apache.tomcat.util.ExceptionUtils;
 import org.apache.tomcat.util.net.AbstractEndpoint.Handler.SocketState;
 import org.apache.tomcat.util.net.AprEndpoint;
 import org.apache.tomcat.util.net.SSLSupport;
+import org.apache.tomcat.util.net.SendfileKeepAliveState;
 import org.apache.tomcat.util.net.SocketStatus;
 import org.apache.tomcat.util.net.SocketWrapper;
 
@@ -57,18 +60,19 @@ public class Http11AprProcessor extends AbstractHttp11Processor<Long> {
     // ----------------------------------------------------------- Constructors
 
 
-    public Http11AprProcessor(int headerBufferSize, AprEndpoint endpoint,
-            int maxTrailerSize, int maxExtensionSize) {
+    public Http11AprProcessor(int headerBufferSize, boolean rejectIllegalHeaderName,
+            AprEndpoint endpoint, int maxTrailerSize, Set<String> allowedTrailerHeaders,
+            int maxExtensionSize, int maxSwallowSize) {
 
         super(endpoint);
 
-        inputBuffer = new InternalAprInputBuffer(request, headerBufferSize);
+        inputBuffer = new InternalAprInputBuffer(request, headerBufferSize, rejectIllegalHeaderName);
         request.setInputBuffer(inputBuffer);
 
         outputBuffer = new InternalAprOutputBuffer(response, headerBufferSize);
         response.setOutputBuffer(outputBuffer);
 
-        initializeFilters(maxTrailerSize, maxExtensionSize);
+        initializeFilters(maxTrailerSize, allowedTrailerHeaders, maxExtensionSize, maxSwallowSize);
     }
 
 
@@ -124,21 +128,23 @@ public class Http11AprProcessor extends AbstractHttp11Processor<Long> {
 
         try {
             rp.setStage(org.apache.coyote.Constants.STAGE_SERVICE);
-            error = !adapter.event(request, response, status);
+            if (!getAdapter().event(request, response, status)) {
+                setErrorState(ErrorState.CLOSE_NOW, null);
+            }
         } catch (InterruptedIOException e) {
-            error = true;
+            setErrorState(ErrorState.CLOSE_NOW, e);
         } catch (Throwable t) {
             ExceptionUtils.handleThrowable(t);
-            log.error(sm.getString("http11processor.request.process"), t);
             // 500 - Internal Server Error
             response.setStatus(500);
-            adapter.log(request, response, 0);
-            error = true;
+            setErrorState(ErrorState.CLOSE_NOW, t);
+            getAdapter().log(request, response, 0);
+            log.error(sm.getString("http11processor.request.process"), t);
         }
 
         rp.setStage(org.apache.coyote.Constants.STAGE_ENDED);
 
-        if (error || status==SocketStatus.STOP) {
+        if (getErrorState().isError() || status==SocketStatus.STOP) {
             return SocketState.CLOSED;
         } else if (!comet) {
             inputBuffer.nextRequest();
@@ -185,15 +191,7 @@ public class Http11AprProcessor extends AbstractHttp11Processor<Long> {
         // (long keepalive), so that the processor should be recycled
         // and the method should return true
         openSocket = true;
-        if (endpoint.isPaused()) {
-            // 503 - Service unavailable
-            response.setStatus(503);
-            adapter.log(request, response, 0);
-            error = true;
-        } else {
-            return true;
-        }
-        return false;
+        return true;
     }
 
 
@@ -213,24 +211,33 @@ public class Http11AprProcessor extends AbstractHttp11Processor<Long> {
     protected boolean breakKeepAliveLoop(SocketWrapper<Long> socketWrapper) {
         openSocket = keepAlive;
         // Do sendfile as needed: add socket to sendfile and end
-        if (sendfileData != null && !error) {
+        if (sendfileData != null && !getErrorState().isError()) {
             sendfileData.socket = socketWrapper.getSocket().longValue();
-            sendfileData.keepAlive = keepAlive;
-            if (!((AprEndpoint)endpoint).getSendfile().add(sendfileData)) {
-                // Didn't send all of the data to sendfile.
-                if (sendfileData.socket == 0) {
-                    // The socket is no longer set. Something went wrong.
-                    // Close the connection. Too late to set status code.
-                    if (log.isDebugEnabled()) {
-                        log.debug(sm.getString(
-                                "http11processor.sendfile.error"));
-                    }
-                    error = true;
+            if (keepAlive) {
+                if (getInputBuffer().available() == 0) {
+                    sendfileData.keepAliveState = SendfileKeepAliveState.OPEN;
                 } else {
-                    // The sendfile Poller will add the socket to the main
-                    // Poller once sendfile processing is complete
-                    sendfileInProgress = true;
+                    sendfileData.keepAliveState = SendfileKeepAliveState.PIPELINED;
                 }
+            } else {
+                sendfileData.keepAliveState = SendfileKeepAliveState.NONE;
+            }
+            switch (((AprEndpoint)endpoint).getSendfile().add(sendfileData)) {
+            case DONE:
+                return false;
+            case PENDING:
+                // The sendfile Poller will add the socket to the main
+                // Poller once sendfile processing is complete
+                sendfileInProgress = true;
+                return true;
+            case ERROR:
+                // Something went wrong.
+                // Close the connection. Too late to set status code.
+                if (log.isDebugEnabled()) {
+                    log.debug(sm.getString(
+                            "http11processor.sendfile.error"));
+                }
+                setErrorState(ErrorState.CLOSE_NOW, null);
                 return true;
             }
         }
@@ -365,11 +372,17 @@ public class Http11AprProcessor extends AbstractHttp11Processor<Long> {
                         request.setAttribute(SSLSupport.CIPHER_SUITE_KEY, sslO);
                     }
                     // Get client certificate and the certificate chain if present
-                    // certLength == -1 indicates an error
+                    // certLength == -1 indicates an error unless TLS session tickets
+                    // are in use in which case OpenSSL won't store the chain in the
+                    // ticket.
                     int certLength = SSLSocket.getInfoI(socketRef, SSL.SSL_INFO_CLIENT_CERT_CHAIN);
                     byte[] clientCert = SSLSocket.getInfoB(socketRef, SSL.SSL_INFO_CLIENT_CERT);
                     X509Certificate[] certs = null;
-                    if (clientCert != null  && certLength > -1) {
+
+                    if (clientCert != null) {
+                        if (certLength < 0) {
+                            certLength = 0;
+                        }
                         certs = new X509Certificate[certLength + 1];
                         CertificateFactory cf;
                         if (clientCertProvider == null) {
@@ -396,6 +409,11 @@ public class Http11AprProcessor extends AbstractHttp11Processor<Long> {
                     sslO = SSLSocket.getInfoS(socketRef, SSL.SSL_INFO_SESSION_ID);
                     if (sslO != null) {
                         request.setAttribute(SSLSupport.SESSION_ID_KEY, sslO);
+                    }
+                    sslO = SSLSocket.getInfoS(socketRef, SSL.SSL_INFO_PROTOCOL);
+                    if (sslO != null) {
+                        request.setAttribute
+                        (SSLSupport.PROTOCOL_VERSION_KEY, sslO);
                     }
                     //TODO provide a hook to enable the SSL session to be
                     // invalidated. Set AprEndpoint.SESSION_MGR req attr

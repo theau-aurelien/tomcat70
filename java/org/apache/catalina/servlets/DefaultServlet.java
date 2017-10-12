@@ -43,6 +43,7 @@ import javax.naming.NameClassPair;
 import javax.naming.NamingEnumeration;
 import javax.naming.NamingException;
 import javax.naming.directory.DirContext;
+import javax.servlet.DispatcherType;
 import javax.servlet.RequestDispatcher;
 import javax.servlet.ServletContext;
 import javax.servlet.ServletException;
@@ -99,7 +100,7 @@ import org.xml.sax.ext.EntityResolver2;
  * <p>It can be mapped to sub-paths, however in all cases resources are served
  * from the web appplication resource root using the full path from the root
  * of the web application context.
- * <br/>e.g. given a web application structure:
+ * <br>e.g. given a web application structure:
  *</p>
  * <pre>
  * /context
@@ -244,7 +245,7 @@ public class DefaultServlet
         urlEncoder.addSafeCharacter('.');
         urlEncoder.addSafeCharacter('*');
         urlEncoder.addSafeCharacter('/');
-        
+
         if (Globals.IS_SECURITY_ENABLED) {
             factory = DocumentBuilderFactory.newInstance();
             factory.setNamespaceAware(true);
@@ -373,42 +374,40 @@ public class DefaultServlet
      * @param request The servlet request we are processing
      */
     protected String getRelativePath(HttpServletRequest request) {
+        return getRelativePath(request, false);
+    }
+
+    protected String getRelativePath(HttpServletRequest request, boolean allowEmptyPath) {
         // IMPORTANT: DefaultServlet can be mapped to '/' or '/path/*' but always
         // serves resources from the web app root with context rooted paths.
         // i.e. it can not be used to mount the web app root under a sub-path
         // This method must construct a complete context rooted path, although
         // subclasses can change this behaviour.
 
-        // Are we being processed by a RequestDispatcher.include()?
-        if (request.getAttribute(
-                RequestDispatcher.INCLUDE_REQUEST_URI) != null) {
-            String result = (String) request.getAttribute(
-                    RequestDispatcher.INCLUDE_PATH_INFO);
-            if (result == null) {
-                result = (String) request.getAttribute(
-                        RequestDispatcher.INCLUDE_SERVLET_PATH);
-            } else {
-                result = (String) request.getAttribute(
-                        RequestDispatcher.INCLUDE_SERVLET_PATH) + result;
-            }
-            if ((result == null) || (result.equals(""))) {
-                result = "/";
-            }
-            return (result);
-        }
+        String servletPath;
+        String pathInfo;
 
-        // No, extract the desired path directly from the request
-        String result = request.getPathInfo();
-        if (result == null) {
-            result = request.getServletPath();
+        if (request.getAttribute(RequestDispatcher.INCLUDE_REQUEST_URI) != null) {
+            // For includes, get the info from the attributes
+            pathInfo = (String) request.getAttribute(RequestDispatcher.INCLUDE_PATH_INFO);
+            servletPath = (String) request.getAttribute(RequestDispatcher.INCLUDE_SERVLET_PATH);
         } else {
-            result = request.getServletPath() + result;
+            pathInfo = request.getPathInfo();
+            servletPath = request.getServletPath();
         }
-        if ((result == null) || (result.equals(""))) {
-            result = "/";
-        }
-        return (result);
 
+        StringBuilder result = new StringBuilder();
+        if (servletPath.length() > 0) {
+            result.append(servletPath);
+        }
+        if (pathInfo != null) {
+            result.append(pathInfo);
+        }
+        if (result.length() == 0 && !allowEmptyPath) {
+            result.append('/');
+        }
+
+        return result.toString();
     }
 
 
@@ -421,6 +420,18 @@ public class DefaultServlet
      */
     protected String getPathPrefix(final HttpServletRequest request) {
         return request.getContextPath();
+    }
+
+
+    @Override
+    protected void service(HttpServletRequest req, HttpServletResponse resp)
+            throws ServletException, IOException {
+
+        if (req.getDispatcherType() == DispatcherType.ERROR) {
+            doGet(req, resp);
+        } else {
+            super.service(req, resp);
+        }
     }
 
 
@@ -454,13 +465,13 @@ public class DefaultServlet
      * @exception ServletException if a servlet-specified error occurs
      */
     @Override
-    protected void doHead(HttpServletRequest request,
-                          HttpServletResponse response)
-        throws IOException, ServletException {
-
-        // Serve the requested resource, without the data content
-        serveResource(request, response, false);
-
+    protected void doHead(HttpServletRequest request, HttpServletResponse response)
+            throws IOException, ServletException {
+        // Serve the requested resource, without the data content unless we are
+        // being included since in that case the content needs to be provided so
+        // the correct content length is reported for the including resource
+        boolean serveContent = DispatcherType.INCLUDE.equals(request.getDispatcherType());
+        serveResource(request, response, serveContent);
     }
 
 
@@ -619,46 +630,69 @@ public class DefaultServlet
             contentFile.deleteOnExit();
         }
 
-        RandomAccessFile randAccessContentFile =
-            new RandomAccessFile(contentFile, "rw");
-
-        Resource oldResource = null;
+        RandomAccessFile randAccessContentFile = null;
         try {
-            Object obj = resources.lookup(path);
-            if (obj instanceof Resource)
-                oldResource = (Resource) obj;
-        } catch (NamingException e) {
-            // Ignore
-        }
-
-        // Copy data in oldRevisionContent to contentFile
-        if (oldResource != null) {
-            BufferedInputStream bufOldRevStream =
-                new BufferedInputStream(oldResource.streamContent(),
-                                        BUFFER_SIZE);
-
-            int numBytesRead;
-            byte[] copyBuffer = new byte[BUFFER_SIZE];
-            while ((numBytesRead = bufOldRevStream.read(copyBuffer)) != -1) {
-                randAccessContentFile.write(copyBuffer, 0, numBytesRead);
+            randAccessContentFile =
+                    new RandomAccessFile(contentFile, "rw");
+            Resource oldResource = null;
+            try {
+                Object obj = resources.lookup(path);
+                if (obj instanceof Resource)
+                    oldResource = (Resource) obj;
+            } catch (NamingException e) {
+                // Ignore
             }
 
-            bufOldRevStream.close();
-        }
+            // Copy data in oldRevisionContent to contentFile
+            if (oldResource != null) {
+                BufferedInputStream bufOldRevStream = null;
+                try {
+                    bufOldRevStream =
+                            new BufferedInputStream(oldResource.streamContent(),
+                                                    BUFFER_SIZE);
+                    int numBytesRead;
+                    byte[] copyBuffer = new byte[BUFFER_SIZE];
+                    while ((numBytesRead = bufOldRevStream.read(copyBuffer)) != -1) {
+                        randAccessContentFile.write(copyBuffer, 0, numBytesRead);
+                    }
+                } finally {
+                    if (bufOldRevStream != null) {
+                        try {
+                            bufOldRevStream.close();
+                        } catch (IOException e) {
+                        }
+                    }
+                }
+            }
 
-        randAccessContentFile.setLength(range.length);
+            randAccessContentFile.setLength(range.length);
 
-        // Append data in request input stream to contentFile
-        randAccessContentFile.seek(range.start);
-        int numBytesRead;
-        byte[] transferBuffer = new byte[BUFFER_SIZE];
-        BufferedInputStream requestBufInStream =
-            new BufferedInputStream(req.getInputStream(), BUFFER_SIZE);
-        while ((numBytesRead = requestBufInStream.read(transferBuffer)) != -1) {
-            randAccessContentFile.write(transferBuffer, 0, numBytesRead);
+            // Append data in request input stream to contentFile
+            randAccessContentFile.seek(range.start);
+            int numBytesRead;
+            byte[] transferBuffer = new byte[BUFFER_SIZE];
+            BufferedInputStream requestBufInStream = null;
+            try {
+                requestBufInStream = new BufferedInputStream(req.getInputStream(), BUFFER_SIZE);
+                while ((numBytesRead = requestBufInStream.read(transferBuffer)) != -1) {
+                    randAccessContentFile.write(transferBuffer, 0, numBytesRead);
+                }
+            } finally {
+                if (requestBufInStream != null) {
+                    try {
+                        requestBufInStream.close();
+                    } catch (IOException e) {
+                    }
+                }
+            }
+        } finally {
+            if (randAccessContentFile != null) {
+                try {
+                    randAccessContentFile.close();
+                } catch (IOException e) {
+                }
+            }
         }
-        randAccessContentFile.close();
-        requestBufInStream.close();
 
         return contentFile;
 
@@ -741,7 +775,7 @@ public class DefaultServlet
      * @param path Path which has to be rewritten
      */
     protected String rewriteUrl(String path) {
-        return urlEncoder.encode( path );
+        return urlEncoder.encode(path, "UTF-8");
     }
 
 
@@ -782,7 +816,8 @@ public class DefaultServlet
         boolean serveContent = content;
 
         // Identify the requested resource path
-        String path = getRelativePath(request);
+        String path = getRelativePath(request, true);
+
         if (debug > 0) {
             if (serveContent)
                 log("DefaultServlet.serveResource:  Serving resource '" +
@@ -792,7 +827,14 @@ public class DefaultServlet
                     path + "' headers only");
         }
 
+        if (path.length() == 0) {
+            // Context root redirect
+            doDirectoryRedirect(request, response);
+            return;
+        }
+
         CacheEntry cacheEntry = resources.lookupCache(path);
+        boolean isError = DispatcherType.ERROR == request.getDispatcherType();
 
         if (!cacheEntry.exists) {
             // Check if we're included so we can return the appropriate
@@ -809,30 +851,14 @@ public class DefaultServlet
                     requestUri));
             }
 
-            response.sendError(HttpServletResponse.SC_NOT_FOUND,
-                               requestUri);
+            if (isError) {
+                response.sendError(((Integer) request.getAttribute(
+                        RequestDispatcher.ERROR_STATUS_CODE)).intValue());
+            } else {
+                response.sendError(HttpServletResponse.SC_NOT_FOUND, requestUri);
+            }
             return;
         }
-
-        // If the resource is not a collection, and the resource path
-        // ends with "/" or "\", return NOT FOUND
-        if (cacheEntry.context == null) {
-            if (path.endsWith("/") || (path.endsWith("\\"))) {
-                // Check if we're included so we can return the appropriate
-                // missing resource name in the error
-                String requestUri = (String) request.getAttribute(
-                        RequestDispatcher.INCLUDE_REQUEST_URI);
-                if (requestUri == null) {
-                    requestUri = request.getRequestURI();
-                }
-                response.sendError(HttpServletResponse.SC_NOT_FOUND,
-                                   requestUri);
-                return;
-            }
-        }
-
-        boolean isError =
-            response.getStatus() >= HttpServletResponse.SC_BAD_REQUEST;
 
         // Check if the conditions specified in the optional If headers are
         // satisfied.
@@ -859,6 +885,11 @@ public class DefaultServlet
         long contentLength = -1L;
 
         if (cacheEntry.context != null) {
+
+            if (!path.endsWith("/")) {
+                doDirectoryRedirect(request, response);
+                return;
+            }
 
             // Skip directory listings if we have been configured to
             // suppress them
@@ -1067,6 +1098,16 @@ public class DefaultServlet
 
     }
 
+    private void doDirectoryRedirect(HttpServletRequest request, HttpServletResponse response)
+            throws IOException {
+        StringBuilder location = new StringBuilder(request.getRequestURI());
+        location.append('/');
+        if (request.getQueryString() != null) {
+            location.append('?');
+            location.append(request.getQueryString());
+        }
+        response.sendRedirect(response.encodeRedirectURL(location.toString()));
+    }
 
     /**
      * Parse the content-range header.
@@ -1282,7 +1323,7 @@ public class DefaultServlet
 
     }
 
-    
+
     /**
      * Return an InputStream to an HTML representation of the contents
      * of this directory.
@@ -1292,7 +1333,7 @@ public class DefaultServlet
      */
     protected InputStream renderXml(String contextPath,
                                     CacheEntry cacheEntry,
-                                    Source xsltSource)
+            Source xsltSource)
         throws IOException, ServletException {
 
         StringBuilder sb = new StringBuilder();
@@ -1612,15 +1653,39 @@ public class DefaultServlet
                 Object obj = directory.lookup(readmeFile);
                 if ((obj != null) && (obj instanceof Resource)) {
                     StringWriter buffer = new StringWriter();
-                    InputStream is = ((Resource) obj).streamContent();
-                    copyRange(new InputStreamReader(is),
-                            new PrintWriter(buffer));
+                    InputStream is = null;
+                    Reader reader = null;
+                    try {
+                        is = ((Resource) obj).streamContent();
+                        if (fileEncoding != null) {
+                            reader = new InputStreamReader(is, fileEncoding);
+                        } else {
+                            reader = new InputStreamReader(is);
+                        }
+                        copyRange(reader,
+                                new PrintWriter(buffer));
+                    } finally {
+                        if (reader != null) {
+                            try {
+                                reader.close();
+                            } catch (IOException e) {
+                                log("Could not close reader", e);
+                            }
+                        }
+                        if (is != null) {
+                            try {
+                                is.close();
+                            } catch (IOException e) {
+                                log("Could not close is", e);
+                            }
+                        }
+                    }
                     return buffer.toString();
                 }
             } catch (NamingException e) {
-                if (debug > 10)
+                if (debug > 10) {
                     log("readme '" + readmeFile + "' not found", e);
-
+                }
                 return null;
             }
         }
@@ -1699,15 +1764,15 @@ public class DefaultServlet
 
 
     private File validateGlobalXsltFile() {
-        
+
         File result = null;
         String base = System.getProperty(Globals.CATALINA_BASE_PROP);
-        
+
         if (base != null) {
             File baseConf = new File(base, "conf");
             result = validateGlobalXsltFile(baseConf);
         }
-        
+
         if (result == null) {
             String home = System.getProperty(Globals.CATALINA_HOME_PROP);
             if (home != null && !home.equals(base)) {
@@ -1795,7 +1860,7 @@ public class DefaultServlet
             && (entry.resource != null)
             && ((length > sendfileSize) || (entry.resource.getContent() == null))
             && (entry.attributes.getCanonicalPath() != null)
-            && (Boolean.TRUE == request.getAttribute(Globals.SENDFILE_SUPPORTED_ATTR))
+            && (Boolean.TRUE.equals(request.getAttribute(Globals.SENDFILE_SUPPORTED_ATTR)))
             && (request.getClass().getName().equals("org.apache.catalina.connector.RequestFacade"))
             && (response.getClass().getName().equals("org.apache.catalina.connector.ResponseFacade"))) {
             request.setAttribute(Globals.SENDFILE_FILENAME_ATTR, entry.attributes.getCanonicalPath());
@@ -1842,7 +1907,7 @@ public class DefaultServlet
                         conditionSatisfied = true;
                 }
 
-                // If none of the given ETags match, 412 Precodition failed is
+                // If none of the given ETags match, 412 Precondition failed is
                 // sent back
                 if (!conditionSatisfied) {
                     response.sendError
@@ -2128,27 +2193,32 @@ public class DefaultServlet
         while ( (exception == null) && (ranges.hasNext()) ) {
 
             InputStream resourceInputStream = cacheEntry.resource.streamContent();
-            InputStream istream =
-                new BufferedInputStream(resourceInputStream, input);
+            InputStream istream = null;
+            try {
+                istream = new BufferedInputStream(resourceInputStream, input);
+                Range currentRange = ranges.next();
 
-            Range currentRange = ranges.next();
+                // Writing MIME header.
+                ostream.println();
+                ostream.println("--" + mimeSeparation);
+                if (contentType != null)
+                    ostream.println("Content-Type: " + contentType);
+                ostream.println("Content-Range: bytes " + currentRange.start
+                               + "-" + currentRange.end + "/"
+                               + currentRange.length);
+                ostream.println();
 
-            // Writing MIME header.
-            ostream.println();
-            ostream.println("--" + mimeSeparation);
-            if (contentType != null)
-                ostream.println("Content-Type: " + contentType);
-            ostream.println("Content-Range: bytes " + currentRange.start
-                           + "-" + currentRange.end + "/"
-                           + currentRange.length);
-            ostream.println();
-
-            // Printing content
-            exception = copyRange(istream, ostream, currentRange.start,
-                                  currentRange.end);
-
-            istream.close();
-
+                // Printing content
+                exception = copyRange(istream, ostream, currentRange.start,
+                                      currentRange.end);
+            } finally {
+                if (istream != null) {
+                    try {
+                        istream.close();
+                    } catch (IOException e) {
+                    }
+                }
+            }
         }
 
         ostream.println();
@@ -2291,6 +2361,8 @@ public class DefaultServlet
 
         /**
          * Validate range.
+         *
+         * @return true if the range is valid, otherwise false
          */
         public boolean validate() {
             if (end >= length)

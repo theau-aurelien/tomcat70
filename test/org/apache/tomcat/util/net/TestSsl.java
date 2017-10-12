@@ -61,7 +61,7 @@ public class TestSsl extends TomcatBaseTest {
         tomcat.start();
         ByteChunk res = getUrl("https://localhost:" + getPort() +
             "/examples/servlets/servlet/HelloWorldExample");
-        assertTrue(res.toString().indexOf("<h1>Hello World!</h1>") > 0);
+        assertTrue(res.toString().indexOf("<a href=\"../helloworld.html\">") > 0);
     }
 
     @Test
@@ -73,13 +73,13 @@ public class TestSsl extends TomcatBaseTest {
         File appDir = new File(getBuildDirectory(), "webapps/examples");
         tomcat.addWebapp(null, "/examples", appDir.getAbsolutePath());
 
-        TesterSupport.initSsl(tomcat, "localhost-copy1.jks", "changeit",
-                "tomcatpass");
+        TesterSupport.initSsl(tomcat, TesterSupport.LOCALHOST_KEYPASS_JKS,
+                TesterSupport.JKS_PASS, TesterSupport.JKS_KEY_PASS);
 
         tomcat.start();
         ByteChunk res = getUrl("https://localhost:" + getPort() +
             "/examples/servlets/servlet/HelloWorldExample");
-        assertTrue(res.toString().indexOf("<h1>Hello World!</h1>") > 0);
+        assertTrue(res.toString().indexOf("<a href=\"../helloworld.html\">") > 0);
     }
 
 
@@ -170,7 +170,8 @@ public class TestSsl extends TomcatBaseTest {
 
         SSLContext sslCtx = SSLContext.getInstance("TLS");
         sslCtx.init(null, TesterSupport.getTrustManagers(), null);
-        SSLSocketFactory socketFactory = sslCtx.getSocketFactory();
+        SSLSocketFactory socketFactory = 
+                new TesterSupport.NoSSLv2SocketFactory(sslCtx.getSocketFactory());
         SSLSocket socket = (SSLSocket) socketFactory.createSocket("localhost",
                 getPort());
 

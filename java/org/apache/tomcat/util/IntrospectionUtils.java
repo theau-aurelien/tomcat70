@@ -173,7 +173,7 @@ public final class IntrospectionUtils {
         // Find the directory where jarName.jar is located
 
         String cpath = System.getProperty("java.class.path");
-        String pathSep = System.getProperty("path.separator");
+        String pathSep = File.pathSeparator;
         StringTokenizer st = new StringTokenizer(cpath, pathSep);
         while (st.hasMoreTokens()) {
             String path = st.nextToken();
@@ -194,7 +194,7 @@ public final class IntrospectionUtils {
                     install = f1.getCanonicalPath();
                     if (installSysProp != null)
                         System.getProperties().put(installSysProp, install);
-                    if (home == null && homeSysProp != null)
+                    if (homeSysProp != null)
                         System.getProperties().put(homeSysProp, install);
                     return install;
                 } catch (Exception ex) {
@@ -250,7 +250,7 @@ public final class IntrospectionUtils {
      * @deprecated Used only by deprecated method
      */
     @Deprecated
-    public static final String PATH_SEPARATOR = System.getProperty("path.separator");
+    public static final String PATH_SEPARATOR = File.pathSeparator;
 
     /**
      * Adds classpath entries from a vector of URL's to the "tc_path_add" System
@@ -281,6 +281,8 @@ public final class IntrospectionUtils {
     public static boolean setProperty(Object o, String name, String value) {
         return setProperty(o,name,value,true);
     }
+
+    @SuppressWarnings("null") // setPropertyMethodVoid is not null when used
     public static boolean setProperty(Object o, String name, String value,
             boolean invokeSetProperty) {
         if (log.isDebugEnabled())
@@ -319,7 +321,7 @@ public final class IntrospectionUtils {
                     if ("java.lang.Integer".equals(paramType.getName())
                             || "int".equals(paramType.getName())) {
                         try {
-                            params[0] = new Integer(value);
+                            params[0] = Integer.valueOf(value);
                         } catch (NumberFormatException ex) {
                             ok = false;
                         }
@@ -327,7 +329,7 @@ public final class IntrospectionUtils {
                     }else if ("java.lang.Long".equals(paramType.getName())
                                 || "long".equals(paramType.getName())) {
                             try {
-                                params[0] = new Long(value);
+                                params[0] = Long.valueOf(value);
                             } catch (NumberFormatException ex) {
                                 ok = false;
                             }
@@ -488,14 +490,14 @@ public final class IntrospectionUtils {
      */
     public static String replaceProperties(String value,
             Hashtable<Object,Object> staticProp, PropertySource dynamicProp[]) {
-        if (value.indexOf("$") < 0) {
+        if (value.indexOf('$') < 0) {
             return value;
         }
         StringBuilder sb = new StringBuilder();
         int prev = 0;
         // assert value!=nil
         int pos;
-        while ((pos = value.indexOf("$", prev)) >= 0) {
+        while ((pos = value.indexOf('$', prev)) >= 0) {
             if (pos > 0) {
                 sb.append(value.substring(prev, pos));
             }
@@ -675,7 +677,7 @@ public final class IntrospectionUtils {
     @Deprecated
     public static void addJarsFromClassPath(Vector<URL> jars, String cp)
             throws IOException, MalformedURLException {
-        String sep = System.getProperty("path.separator");
+        String sep = File.pathSeparator;
         StringTokenizer st;
         if (cp != null) {
             st = new StringTokenizer(cp, sep);
@@ -756,6 +758,8 @@ public final class IntrospectionUtils {
         return methods;
     }
 
+    @SuppressWarnings("null") // Neither params nor methodParams can be null
+                              // when comparing their lengths
     public static Method findMethod(Class<?> c, String name,
             Class<?> params[]) {
         Method methods[] = findMethods(c);
@@ -830,9 +834,9 @@ public final class IntrospectionUtils {
     public static Object callMethod1(Object target, String methodN,
             Object param1, String typeParam1, ClassLoader cl) throws Exception {
         if (target == null || param1 == null) {
-            if (log.isDebugEnabled())
-                log.debug("IntrospectionUtils: Assert: Illegal params " +
-                        target + " " + param1);
+            throw new IllegalArgumentException(
+                    "IntrospectionUtils: Assert: Illegal params " +
+                    target + " " + param1);
         }
         if (log.isDebugEnabled())
             log.debug("IntrospectionUtils: callMethod1 " +
@@ -931,7 +935,7 @@ public final class IntrospectionUtils {
         } else if ("java.lang.Integer".equals(paramType.getName())
                 || "int".equals(paramType.getName())) {
             try {
-                result = new Integer(object);
+                result = Integer.valueOf(object);
             } catch (NumberFormatException ex) {
             }
             // Try a setFoo ( boolean )

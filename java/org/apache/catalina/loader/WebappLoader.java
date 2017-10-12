@@ -30,7 +30,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
 import java.lang.reflect.Constructor;
-import java.lang.reflect.Method;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -122,7 +121,7 @@ public class WebappLoader extends LifecycleMBeanBase
     /**
      * The class loader being managed by this Loader component.
      */
-    private WebappClassLoader classLoader = null;
+    private WebappClassLoaderBase classLoader = null;
 
 
     /**
@@ -147,7 +146,7 @@ public class WebappLoader extends LifecycleMBeanBase
 
     /**
      * The Java class name of the ClassLoader implementation to be used.
-     * This class should extend WebappClassLoader, otherwise, a different
+     * This class should extend WebappClassLoaderBase, otherwise, a different
      * loader implementation must be used.
      */
     private String loaderClass =
@@ -586,6 +585,8 @@ public class WebappLoader extends LifecycleMBeanBase
             if (container instanceof StandardContext) {
                 classLoader.setAntiJARLocking(
                         ((StandardContext) container).getAntiJARLocking());
+                classLoader.setClearReferencesRmiTargets(
+                        ((StandardContext) container).getClearReferencesRmiTargets());
                 classLoader.setClearReferencesStatic(
                         ((StandardContext) container).getClearReferencesStatic());
                 classLoader.setClearReferencesStopThreads(
@@ -715,11 +716,11 @@ public class WebappLoader extends LifecycleMBeanBase
     /**
      * Create associated classLoader.
      */
-    private WebappClassLoader createClassLoader()
+    private WebappClassLoaderBase createClassLoader()
         throws Exception {
 
         Class<?> clazz = Class.forName(loaderClass);
-        WebappClassLoader classLoader = null;
+        WebappClassLoaderBase classLoader = null;
 
         if (parentClassLoader == null) {
             parentClassLoader = container.getParentClassLoader();
@@ -727,7 +728,7 @@ public class WebappLoader extends LifecycleMBeanBase
         Class<?>[] argTypes = { ClassLoader.class };
         Object[] args = { parentClassLoader };
         Constructor<?> constr = clazz.getConstructor(argTypes);
-        classLoader = (WebappClassLoader) constr.newInstance(args);
+        classLoader = (WebappClassLoaderBase) constr.newInstance(args);
 
         return classLoader;
 
@@ -1073,8 +1074,7 @@ public class WebappLoader extends LifecycleMBeanBase
     private boolean buildClassPath(ServletContext servletContext,
             StringBuilder classpath, ClassLoader loader) {
         if (loader instanceof URLClassLoader) {
-            URL repositories[] =
-                    ((URLClassLoader) loader).getURLs();
+            URL repositories[] = ((URLClassLoader) loader).getURLs();
                 for (int i = 0; i < repositories.length; i++) {
                     String repository = repositories[i].toString();
                     if (repository.startsWith("file://"))
@@ -1092,15 +1092,19 @@ public class WebappLoader extends LifecycleMBeanBase
                         classpath.append(File.pathSeparator);
                     classpath.append(repository);
                 }
-        } else {
-            String cp = getClasspath(loader);
-            if (cp == null) {
-                log.info( "Unknown loader " + loader + " " + loader.getClass());
-            } else {
-                if (classpath.length() > 0)
+        } else if (loader == ClassLoader.getSystemClassLoader()){
+            // Java 9 onwards. The internal class loaders no longer extend
+            // URLCLassLoader
+            String cp = System.getProperty("java.class.path");
+            if (cp != null && cp.length() > 0) {
+                if (classpath.length() > 0) {
                     classpath.append(File.pathSeparator);
+                }
                 classpath.append(cp);
             }
+            return false;
+        } else {
+            log.info( "Unknown loader " + loader + " " + loader.getClass());
             return false;
         }
         return true;
@@ -1116,27 +1120,6 @@ public class WebappLoader extends LifecycleMBeanBase
         return result;
     }
 
-    // try to extract the classpath from a loader that is not URLClassLoader
-    private String getClasspath( ClassLoader loader ) {
-        try {
-            Method m=loader.getClass().getMethod("getClasspath", new Class[] {});
-            if( log.isTraceEnabled())
-                log.trace("getClasspath " + m );
-            if( m==null ) return null;
-            Object o=m.invoke( loader, new Object[] {} );
-            if( log.isDebugEnabled() )
-                log.debug("gotClasspath " + o);
-            if( o instanceof String )
-                return (String)o;
-            return null;
-        } catch( Exception ex ) {
-            Throwable t = ExceptionUtils.unwrapInvocationTargetException(ex);
-            ExceptionUtils.handleThrowable(t);
-            if (log.isDebugEnabled())
-                log.debug("getClasspath ", ex);
-        }
-        return null;
-    }
 
     /**
      * Copy directory.

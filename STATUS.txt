@@ -29,14 +29,14 @@ PATCHES ACCEPTED TO BACKPORT:
 PATCHES PROPOSED TO BACKPORT:
   [ New proposals should be added at the end of the list ]
 
-* https://issues.apache.org/bugzilla/show_bug.cgi?id=54330
+* https://bz.apache.org/bugzilla/show_bug.cgi?id=54330
   Refactor Member interface to reduce dependency on concrete implementation.
   Based on a patch by Greg Turnquist.
   I have added this to the status file because it changes an interface. I don't
   believe there is any harm in this - the interface isn't really usable prior to
   this patch - but I'd prefer this change to be RTC.
   http://svn.apache.org/viewvc?rev=1430602&view=rev
-  +1: markt
+  +1: markt, fhanik
   -1:
 
 * Back-port r1437083 from trunk.

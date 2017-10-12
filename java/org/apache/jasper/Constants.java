@@ -74,8 +74,11 @@ public class Constants {
      * servlet definition.  If present on a request, this overrides the
      * value returned by <code>request.getServletPath()</code> to select
      * the JSP page to be executed.
+     * @deprecated  This will be removed in Tomcat 9.0.x onwards. It is replaced
+     *              by the use of the jspFile servlet initialisation parameter
      */
-    public static final String JSP_FILE = 
+    @Deprecated
+    public static final String JSP_FILE =
         System.getProperty("org.apache.jasper.Constants.JSP_FILE", "org.apache.catalina.jsp_file");
 
 
@@ -196,7 +199,7 @@ public class Constants {
         (System.getSecurityManager() != null);
 
     public static final boolean USE_INSTANCE_MANAGER_FOR_TAGS =
-        Boolean.valueOf(System.getProperty("org.apache.jasper.Constants.USE_INSTANCE_MANAGER_FOR_TAGS", "false")).booleanValue();
+        Boolean.parseBoolean(System.getProperty("org.apache.jasper.Constants.USE_INSTANCE_MANAGER_FOR_TAGS", "false"));
 
     /**
      * The name of the path parameter used to pass the session identifier

@@ -18,6 +18,7 @@ package org.apache.tomcat.util.buf;
 
 import java.io.IOException;
 import java.io.Serializable;
+import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.util.Locale;
 
@@ -43,10 +44,10 @@ public final class MessageBytes implements Cloneable, Serializable {
     /** getType() is T_STR if the the object used to create the MessageBytes
         was a String */
     public static final int T_STR  = 1;
-    /** getType() is T_STR if the the object used to create the MessageBytes
+    /** getType() is T_BYTES if the the object used to create the MessageBytes
         was a byte[] */
     public static final int T_BYTES = 2;
-    /** getType() is T_STR if the the object used to create the MessageBytes
+    /** getType() is T_CHARS if the the object used to create the MessageBytes
         was a char[] */
     public static final int T_CHARS = 3;
 
@@ -127,21 +128,6 @@ public final class MessageBytes implements Cloneable, Serializable {
         hasHashCode=false;
         hasIntValue=false;
         hasLongValue=false;
-    }
-
-    /** Set the encoding. If the object was constructed from bytes[]. any
-     *  previous conversion is reset.
-     *  If no encoding is set, we'll use 8859-1.
-     * @deprecated Unused. Will be removed in Tomcat 8.0.x onwards.
-     */
-    @Deprecated
-    public void setCharset(Charset charset) {
-        if( !byteC.isNull() ) {
-            // if the encoding changes we need to reset the conversion results
-            charC.recycle();
-            hasStrValue=false;
-        }
-        byteC.setCharset(charset);
     }
 
     /**
@@ -232,17 +218,32 @@ public final class MessageBytes implements Cloneable, Serializable {
         return strValue;
     }
 
-    /** Do a char->byte conversion.
+    /**
+     * Get the Charset used for string&lt;-&gt;byte conversions.
+     */
+    public Charset getCharset() {
+        return byteC.getCharset();
+    }
+
+    /**
+     * Set the Charset used for string&lt;-&gt;byte conversions.
+     */
+    public void setCharset(Charset charset) {
+        byteC.setCharset(charset);
+    }
+
+    /** Do a char-&gt;byte conversion.
      */
     public void toBytes() {
-        if( ! byteC.isNull() ) {
+        if (!byteC.isNull()) {
             type=T_BYTES;
             return;
         }
         toString();
         type=T_BYTES;
-        byte bb[] = strValue.getBytes(Charset.defaultCharset());
-        byteC.setBytes(bb, 0, bb.length);
+        Charset charset = byteC.getCharset();
+        ByteBuffer result = charset.encode(strValue);
+        byteC.setBytes(result.array(), result.arrayOffset(), result.limit());
     }
 
     /** Convert to char[] and fill the CharChunk.
@@ -524,6 +525,7 @@ public final class MessageBytes implements Cloneable, Serializable {
             this.setString( sc );
             break;
         }
+        setCharset(src.getCharset());
     }
 
     // -------------------- Deprecated code --------------------

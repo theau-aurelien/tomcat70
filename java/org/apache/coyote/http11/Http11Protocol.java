@@ -39,7 +39,7 @@ import org.apache.tomcat.util.net.SocketWrapper;
  * @author Remy Maucherat
  * @author Costin Manolache
  */
-public class Http11Protocol extends AbstractHttp11JsseProtocol {
+public class Http11Protocol extends AbstractHttp11JsseProtocol<Socket> {
 
 
     private static final org.apache.juli.logging.Log log
@@ -110,7 +110,7 @@ public class Http11Protocol extends AbstractHttp11JsseProtocol {
         }
 
         @Override
-        protected AbstractProtocol getProtocol() {
+        protected AbstractProtocol<Socket> getProtocol() {
             return proto;
         }
 
@@ -163,8 +163,10 @@ public class Http11Protocol extends AbstractHttp11JsseProtocol {
         @Override
         protected Http11Processor createProcessor() {
             Http11Processor processor = new Http11Processor(
-                    proto.getMaxHttpHeaderSize(), (JIoEndpoint)proto.endpoint,
-                    proto.getMaxTrailerSize(),proto.getMaxExtensionSize());
+                    proto.getMaxHttpHeaderSize(), proto.getRejectIllegalHeaderName(),
+                    (JIoEndpoint)proto.endpoint, proto.getMaxTrailerSize(),
+                    proto.getAllowedTrailerHeadersAsSet(), proto.getMaxExtensionSize(),
+                    proto.getMaxSwallowSize());
             processor.setAdapter(proto.adapter);
             processor.setMaxKeepAliveRequests(proto.getMaxKeepAliveRequests());
             processor.setKeepAliveTimeout(proto.getKeepAliveTimeout());
@@ -181,6 +183,7 @@ public class Http11Protocol extends AbstractHttp11JsseProtocol {
             processor.setServer(proto.getServer());
             processor.setDisableKeepAlivePercentage(
                     proto.getDisableKeepAlivePercentage());
+            processor.setMaxCookieCount(proto.getMaxCookieCount());
             register(processor);
             return processor;
         }

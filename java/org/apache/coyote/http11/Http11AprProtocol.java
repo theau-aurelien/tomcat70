@@ -40,7 +40,7 @@ import org.apache.tomcat.util.net.SocketWrapper;
  * @author Remy Maucherat
  * @author Costin Manolache
  */
-public class Http11AprProtocol extends AbstractHttp11Protocol {
+public class Http11AprProtocol extends AbstractHttp11Protocol<Long> {
 
     private static final Log log = LogFactory.getLog(Http11AprProtocol.class);
 
@@ -215,7 +215,7 @@ public class Http11AprProtocol extends AbstractHttp11Protocol {
         }
 
         @Override
-        protected AbstractProtocol getProtocol() {
+        protected AbstractProtocol<Long> getProtocol() {
             return proto;
         }
 
@@ -299,8 +299,10 @@ public class Http11AprProtocol extends AbstractHttp11Protocol {
         @Override
         protected Http11AprProcessor createProcessor() {
             Http11AprProcessor processor = new Http11AprProcessor(
-                    proto.getMaxHttpHeaderSize(), (AprEndpoint)proto.endpoint,
-                    proto.getMaxTrailerSize(), proto.getMaxExtensionSize());
+                    proto.getMaxHttpHeaderSize(), proto.getRejectIllegalHeaderName(),
+                    (AprEndpoint)proto.endpoint, proto.getMaxTrailerSize(),
+                    proto.getAllowedTrailerHeadersAsSet(), proto.getMaxExtensionSize(),
+                    proto.getMaxSwallowSize());
             processor.setAdapter(proto.adapter);
             processor.setMaxKeepAliveRequests(proto.getMaxKeepAliveRequests());
             processor.setKeepAliveTimeout(proto.getKeepAliveTimeout());
@@ -316,6 +318,7 @@ public class Http11AprProtocol extends AbstractHttp11Protocol {
             processor.setMaxSavePostSize(proto.getMaxSavePostSize());
             processor.setServer(proto.getServer());
             processor.setClientCertProvider(proto.getClientCertProvider());
+            processor.setMaxCookieCount(proto.getMaxCookieCount());
             register(processor);
             return processor;
         }

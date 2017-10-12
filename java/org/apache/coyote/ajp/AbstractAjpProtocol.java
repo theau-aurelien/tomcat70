@@ -22,7 +22,7 @@ import org.apache.coyote.http11.upgrade.servlet31.HttpUpgradeHandler;
 import org.apache.tomcat.util.net.SocketWrapper;
 import org.apache.tomcat.util.res.StringManager;
 
-public abstract class AbstractAjpProtocol extends AbstractProtocol {
+public abstract class AbstractAjpProtocol<S> extends AbstractProtocol<S> {
     
     /**
      * The string manager for this package.
@@ -42,13 +42,42 @@ public abstract class AbstractAjpProtocol extends AbstractProtocol {
     // ------------------------------------------ managed in the ProtocolHandler
     
     /**
-     * Should authentication be done in the native webserver layer, 
+     * Send AJP flush packet when flushing.
+     * An flush packet is a zero byte AJP13 SEND_BODY_CHUNK
+     * packet. mod_jk and mod_proxy_ajp interprete this as
+     * a request to flush data to the client.
+     * AJP always does flush at the and of the response, so if
+     * it is not important, that the packets get streamed up to
+     * the client, do not use extra flush packets.
+     * For compatibility and to stay on the safe side, flush
+     * packets are enabled by default.
+     */
+    protected boolean ajpFlush = true;
+    public boolean getAjpFlush() { return ajpFlush; }
+    public void setAjpFlush(boolean ajpFlush) {
+        this.ajpFlush = ajpFlush;
+    }
+
+
+    /**
+     * Should authentication be done in the native web server layer,
      * or in the Servlet container ?
      */
     protected boolean tomcatAuthentication = true;
     public boolean getTomcatAuthentication() { return tomcatAuthentication; }
     public void setTomcatAuthentication(boolean tomcatAuthentication) {
         this.tomcatAuthentication = tomcatAuthentication;
+    }
+
+
+    /**
+     * Should authentication be done in the native web server layer and
+     * authorization in the Servlet container?
+     */
+    private boolean tomcatAuthorization = false;
+    public boolean getTomcatAuthorization() { return tomcatAuthorization; }
+    public void setTomcatAuthorization(boolean tomcatAuthorization) {
+        this.tomcatAuthorization = tomcatAuthorization;
     }
 
 
@@ -73,7 +102,7 @@ public abstract class AbstractAjpProtocol extends AbstractProtocol {
             this.packetSize = packetSize;
         }
     }
-    
+
     protected abstract static class AbstractAjpConnectionHandler<S,P extends AbstractAjpProcessor<S>>
             extends AbstractConnectionHandler<S, P> {
 

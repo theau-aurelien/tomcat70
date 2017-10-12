@@ -42,9 +42,9 @@ import org.apache.jasper.compiler.JarResource;
 import org.apache.jasper.compiler.JavacErrorDetail;
 import org.apache.jasper.compiler.JspRuntimeContext;
 import org.apache.jasper.compiler.Localizer;
+import org.apache.jasper.runtime.ExceptionUtils;
 import org.apache.jasper.runtime.InstanceManagerFactory;
 import org.apache.jasper.runtime.JspSourceDependent;
-import org.apache.jasper.util.ExceptionUtils;
 import org.apache.jasper.util.FastRemovalDequeue;
 import org.apache.juli.logging.Log;
 import org.apache.juli.logging.LogFactory;
@@ -220,6 +220,13 @@ public class JspServletWrapper {
                 if (this.servletClassLastModifiedTime < lastModified) {
                     this.servletClassLastModifiedTime = lastModified;
                     reload = true;
+                    // Really need to unload the old class but can't do that. Do
+                    // the next best thing which is throw away the JspLoader so
+                    // a new loader will be created which will load the new
+                    // class.
+                    // TODO Are there inefficiencies between reload and the
+                    //      isOutDated() check?
+                    ctxt.clearJspLoader();
                 }
             }
         }
@@ -456,8 +463,8 @@ public class JspServletWrapper {
             }
             throw ex;
         } catch (IOException ex) {
-            if(options.getDevelopment()) {
-                throw handleJspException(ex);
+            if (options.getDevelopment()) {
+                throw new IOException(handleJspException(ex).getMessage(), ex);
             }
             throw ex;
         } catch (IllegalStateException ex) {
@@ -475,7 +482,12 @@ public class JspServletWrapper {
 
     public void destroy() {
         if (theServlet != null) {
-            theServlet.destroy();
+            try {
+                theServlet.destroy();
+            } catch (Throwable t) {
+                ExceptionUtils.handleThrowable(t);
+                log.error(Localizer.getMessage("jsp.error.servlet.destroy.failed"), t);
+            }
             InstanceManager instanceManager = InstanceManagerFactory.getInstanceManager(config);
             try {
                 instanceManager.destroyInstance(theServlet);
@@ -515,7 +527,7 @@ public class JspServletWrapper {
      * number in the generated servlet that originated the exception to a line
      * number in the JSP.  Then constructs an exception containing that
      * information, and a snippet of the JSP to help debugging.
-     * Please see http://issues.apache.org/bugzilla/show_bug.cgi?id=37062 and
+     * Please see http://bz.apache.org/bugzilla/show_bug.cgi?id=37062 and
      * http://www.tfenne.com/jasper/ for more details.
      *</p>
      *

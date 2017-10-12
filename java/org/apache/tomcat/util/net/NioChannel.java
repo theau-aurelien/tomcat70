@@ -27,6 +27,7 @@ import java.nio.channels.SocketChannel;
 
 import org.apache.tomcat.util.net.NioEndpoint.Poller;
 import org.apache.tomcat.util.net.SecureNioChannel.ApplicationBufferHandler;
+import org.apache.tomcat.util.res.StringManager;
 
 /**
  *
@@ -39,6 +40,9 @@ import org.apache.tomcat.util.net.SecureNioChannel.ApplicationBufferHandler;
  */
 public class NioChannel implements ByteChannel{
 
+    protected static final StringManager sm =
+            StringManager.getManager("org.apache.tomcat.util.net.res");
+
     protected static ByteBuffer emptyBuf = ByteBuffer.allocate(0);
 
     protected SocketChannel sc = null;
@@ -46,8 +50,6 @@ public class NioChannel implements ByteChannel{
     protected ApplicationBufferHandler bufHandler;
 
     protected Poller poller;
-
-    protected boolean sendFile = false;
 
     public NioChannel(SocketChannel channel, ApplicationBufferHandler bufHandler) throws IOException {
         this.sc = channel;
@@ -57,7 +59,6 @@ public class NioChannel implements ByteChannel{
     public void reset() throws IOException {
         bufHandler.getReadBuffer().clear();
         bufHandler.getWriteBuffer().clear();
-        this.sendFile = false;
     }
 
     public int getBufferSize() {
@@ -120,6 +121,7 @@ public class NioChannel implements ByteChannel{
      */
     @Override
     public int write(ByteBuffer src) throws IOException {
+        checkInterruptStatus();
         return sc.write(src);
     }
 
@@ -136,12 +138,11 @@ public class NioChannel implements ByteChannel{
         return sc.read(dst);
     }
 
-    public Object getAttachment(boolean remove) {
+    public Object getAttachment() {
         Poller pol = getPoller();
         Selector sel = pol!=null?pol.getSelector():null;
         SelectionKey key = sel!=null?getIOChannel().keyFor(sel):null;
         Object att = key!=null?key.attachment():null;
-        if (key != null && att != null && remove ) key.attach(null);
         return att;
     }
     /**
@@ -215,13 +216,19 @@ public class NioChannel implements ByteChannel{
         return false;
     }
 
-    public boolean isSendFile() {
-        return sendFile;
+    /**
+     * This method should be used to check the interrupt status before
+     * attempting a write.
+     *
+     * If a thread has been interrupted and the interrupt has not been cleared
+     * then an attempt to write to the socket will fail. When this happens the
+     * socket is removed from the poller without the socket being selected. This
+     * results in a connection limit leak for NIO as the endpoint expects the
+     * socket to be selected even in error conditions.
+     */
+    protected void checkInterruptStatus() throws IOException {
+        if (Thread.interrupted()) {
+            throw new IOException(sm.getString("channel.nio.interrupted"));
+        }
     }
-
-    public void setSendFile(boolean s) {
-        this.sendFile = s;
-    }
-
-
 }

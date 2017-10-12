@@ -64,19 +64,23 @@ public class ThreadPoolExecutor extends java.util.concurrent.ThreadPoolExecutor 
 
     public ThreadPoolExecutor(int corePoolSize, int maximumPoolSize, long keepAliveTime, TimeUnit unit, BlockingQueue<Runnable> workQueue, RejectedExecutionHandler handler) {
         super(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, handler);
+        prestartAllCoreThreads();
     }
 
     public ThreadPoolExecutor(int corePoolSize, int maximumPoolSize, long keepAliveTime, TimeUnit unit, BlockingQueue<Runnable> workQueue, ThreadFactory threadFactory,
             RejectedExecutionHandler handler) {
         super(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, threadFactory, handler);
+        prestartAllCoreThreads();
     }
 
     public ThreadPoolExecutor(int corePoolSize, int maximumPoolSize, long keepAliveTime, TimeUnit unit, BlockingQueue<Runnable> workQueue, ThreadFactory threadFactory) {
         super(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, threadFactory, new RejectHandler());
+        prestartAllCoreThreads();
     }
 
     public ThreadPoolExecutor(int corePoolSize, int maximumPoolSize, long keepAliveTime, TimeUnit unit, BlockingQueue<Runnable> workQueue) {
         super(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, new RejectHandler());
+        prestartAllCoreThreads();
     }
 
     public long getThreadRenewalDelay() {
@@ -199,18 +203,9 @@ public class ThreadPoolExecutor extends java.util.concurrent.ThreadPoolExecutor 
         // setCorePoolSize(0) wakes idle threads
         this.setCorePoolSize(0);
 
-        // wait a little so that idle threads wake and poll the queue again,
-        // this time always with a timeout (queue.poll() instead of
-        // queue.take())
-        // even if we did not wait enough, TaskQueue.take() takes care of timing
-        // out, so that we are sure that all threads of the pool are renewed in
-        // a limited time, something like
+        // TaskQueue.take() takes care of timing out, so that we are sure that
+        // all threads of the pool are renewed in a limited time, something like
         // (threadKeepAlive + longest request time)
-        try {
-            Thread.sleep(200L);
-        } catch (InterruptedException e) {
-            // yes, ignore
-        }
 
         if (taskQueue != null) {
             // ok, restore the state of the queue and pool

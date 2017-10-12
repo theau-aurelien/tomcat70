@@ -57,7 +57,8 @@ public class TestCometProcessor extends TomcatBaseTest {
 
         // Setup Tomcat instance
         Tomcat tomcat = getTomcatInstance();
-        Context root = tomcat.addContext("", TEMP_DIR);
+        // No file system docBase required
+        Context root = tomcat.addContext("", null);
         Tomcat.addServlet(root, "comet", new SimpleCometServlet());
         root.addServletMapping("/comet", "comet");
         Tomcat.addServlet(root, "hello", new HelloWorldServlet());
@@ -124,7 +125,8 @@ public class TestCometProcessor extends TomcatBaseTest {
 
         // Setup Tomcat instance
         Tomcat tomcat = getTomcatInstance();
-        Context root = tomcat.addContext("", TEMP_DIR);
+        // No file system docBase required
+        Context root = tomcat.addContext("", null);
         Tomcat.addServlet(root, "comet", new CometCloseServlet());
         root.addServletMapping("/comet", "comet");
         Tomcat.addServlet(root, "hello", new HelloWorldServlet());
@@ -195,7 +197,8 @@ public class TestCometProcessor extends TomcatBaseTest {
 
         // Setup Tomcat instance
         Tomcat tomcat = getTomcatInstance();
-        Context root = tomcat.addContext("", TEMP_DIR);
+        // No file system docBase required
+        Context root = tomcat.addContext("", null);
         Tomcat.addServlet(root, "comet", new ConnectionCloseServlet());
         root.addServletMapping("/comet", "comet");
         Tomcat.addServlet(root, "hello", new HelloWorldServlet());
@@ -268,7 +271,8 @@ public class TestCometProcessor extends TomcatBaseTest {
 
         // Setup Tomcat instance
         Tomcat tomcat = getTomcatInstance();
-        Context root = tomcat.addContext("", TEMP_DIR);
+        // No file system docBase required
+        Context root = tomcat.addContext("", null);
         Wrapper w = Tomcat.addServlet(root, "comet", new SimpleCometServlet());
         if (initParam != null) {
             w.addInitParameter(initParam, "true");
@@ -363,7 +367,8 @@ public class TestCometProcessor extends TomcatBaseTest {
         // Setup Tomcat instance
         SimpleCometServlet servlet = new SimpleCometServlet();
         Tomcat tomcat = getTomcatInstance();
-        Context root = tomcat.addContext("", TEMP_DIR);
+        // No file system docBase required
+        Context root = tomcat.addContext("", null);
         Tomcat.addServlet(root, "comet", servlet);
         root.addServletMapping("/", "comet");
         tomcat.start();
@@ -392,19 +397,9 @@ public class TestCometProcessor extends TomcatBaseTest {
 
         tomcat.getConnector().stop();
 
-        int count = 0;
-        // Wait for the read thread to stop
-        while (readThread.isAlive() && count < 50) {
-            Thread.sleep(100);
-            count ++;
-        }
-
-        // Wait for the write thread to stop
-        count = 0;
-        while (writeThread.isAlive() && count < 50) {
-            Thread.sleep(100);
-            count ++;
-        }
+        // Wait for the read and write threads to stop
+        readThread.join(5000);
+        writeThread.join(5000);
 
         // Destroy the connector once the executor has sent the end event
         tomcat.getConnector().destroy();
@@ -446,7 +441,8 @@ public class TestCometProcessor extends TomcatBaseTest {
         } else {
             log.info(status);
         }
-        assertTrue("Comet END event not received",
+        assertTrue("Comet END event not received", servlet.getEndEventOccurred());
+        assertTrue("Comet END event not last event received",
                 EventType.END.equals(servlet.getLastEvent()));
     }
 
@@ -483,12 +479,12 @@ public class TestCometProcessor extends TomcatBaseTest {
 
         @Override
         public void init() throws ServletException {
-            failOnBegin = Boolean.valueOf(getServletConfig().getInitParameter(
-                    FAIL_ON_BEGIN)).booleanValue();
-            failOnRead = Boolean.valueOf(getServletConfig().getInitParameter(
-                    FAIL_ON_READ)).booleanValue();
-            failOnEnd = Boolean.valueOf(getServletConfig().getInitParameter(
-                    FAIL_ON_END)).booleanValue();
+            failOnBegin = Boolean.parseBoolean(getServletConfig().getInitParameter(
+                    FAIL_ON_BEGIN));
+            failOnRead = Boolean.parseBoolean(getServletConfig().getInitParameter(
+                    FAIL_ON_READ));
+            failOnEnd = Boolean.parseBoolean(getServletConfig().getInitParameter(
+                    FAIL_ON_END));
         }
 
 
@@ -531,7 +527,9 @@ public class TestCometProcessor extends TomcatBaseTest {
                 response.getWriter().print("Client: " + msg + "\r\n");
                 event.close();
             } else {
-                response.getWriter().print(event.getEventSubType() + "\r\n");
+                String msg = event.getEventType() + ":" + event.getEventSubType() + "\r\n";
+                System.out.print(msg);
+                response.getWriter().print(msg);
                 event.close();
             }
             response.getWriter().flush();

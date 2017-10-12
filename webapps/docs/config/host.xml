@@ -39,7 +39,7 @@
 
   <p>The <strong>Host</strong> element represents a <em>virtual host</em>,
   which is an association of a network name for a server (such as
-  "www.mycompany.com" with the particular server on which Tomcat is running.
+  "www.mycompany.com") with the particular server on which Tomcat is running.
   For clients to be able to connect to a Tomcat server using its network name,
   this name must be registered in the <em>Domain Name Service</em> (DNS) server
   that manages the Internet domain you belong to - contact your Network
@@ -256,7 +256,13 @@
         fail to start in case the descriptor contains necessary configuration
         for secure deployment (such as a RemoteAddrValve) which should not be
         ignored. The flag's value defaults to <code>true</code> unless a
-        security manager is enabled when the default is <code>false</code>.</p>
+        security manager is enabled when the default is <code>false</code>.
+        When running under a security manager this may be enabled on a per web
+        application basis by granting the
+        <code>org.apache.catalina.security.DeployXmlPermission</code> to the web
+        application. The Manager and Host Manager applications are granted this
+        permission by default so that they continue to work when running under a
+        security manager.</p>
       </attribute>
 
       <attribute name="errorReportValveClass" required="false">
@@ -529,7 +535,7 @@
   <subsection name="Single Sign On">
 
     <p>In many environments, but particularly in portal environments, it
-    is desireable to have a user challenged to authenticate themselves only
+    is desirable to have a user challenged to authenticate themselves only
     once over a set of web applications deployed on a particular virtual
     host.  This can be accomplished by nesting an element like this inside
     the Host element for this virtual host:</p>
@@ -601,7 +607,7 @@
   ...
   <Listener className="org.apache.catalina.startup.UserConfig"
             directoryName="public_html"
-            homeBase=c:\Homes"
+            homeBase="c:\Homes"
             userClass="org.apache.catalina.startup.HomesUserDatabase"/>
   ...
 </Host>]]></source>

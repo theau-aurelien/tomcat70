@@ -37,7 +37,7 @@ import org.apache.tomcat.util.net.SocketWrapper;
  * @author Remy Maucherat
  * @author Costin Manolache
  */
-public class AjpProtocol extends AbstractAjpProtocol {
+public class AjpProtocol extends AbstractAjpProtocol<Socket> {
     
     
     private static final Log log = LogFactory.getLog(AjpProtocol.class);
@@ -96,7 +96,7 @@ public class AjpProtocol extends AbstractAjpProtocol {
         }
         
         @Override
-        protected AbstractProtocol getProtocol() {
+        protected AbstractProtocol<Socket> getProtocol() {
             return proto;
         }
 
@@ -133,10 +133,13 @@ public class AjpProtocol extends AbstractAjpProtocol {
         protected AjpProcessor createProcessor() {
             AjpProcessor processor = new AjpProcessor(proto.packetSize, (JIoEndpoint)proto.endpoint);
             processor.setAdapter(proto.adapter);
+            processor.setAjpFlush(proto.getAjpFlush());
             processor.setTomcatAuthentication(proto.tomcatAuthentication);
+            processor.setTomcatAuthorization(proto.getTomcatAuthorization());
             processor.setRequiredSecret(proto.requiredSecret);
             processor.setKeepAliveTimeout(proto.getKeepAliveTimeout());
             processor.setClientCertProvider(proto.getClientCertProvider());
+            processor.setMaxCookieCount(proto.getMaxCookieCount());
             register(processor);
             return processor;
         }

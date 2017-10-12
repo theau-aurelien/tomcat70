@@ -34,7 +34,7 @@ import org.apache.catalina.LifecycleEvent;
 import org.apache.catalina.LifecycleException;
 import org.apache.catalina.LifecycleListener;
 import org.apache.catalina.Valve;
-import org.apache.catalina.loader.WebappClassLoader;
+import org.apache.catalina.loader.WebappClassLoaderBase;
 import org.apache.catalina.mbeans.MBeanUtils;
 import org.apache.catalina.valves.ValveBase;
 import org.apache.tomcat.util.ExceptionUtils;
@@ -222,6 +222,9 @@ public class StandardHost extends ContainerBase implements Host {
     @Override
     public void setAppBase(String appBase) {
 
+        if (appBase.trim().equals("")) {
+            log.warn(sm.getString("standardHost.problematicAppBase", getName()));
+        }
         String oldAppBase = this.appBase;
         this.appBase = appBase;
         support.firePropertyChange("appBase", oldAppBase, this.appBase);
@@ -684,8 +687,8 @@ public class StandardHost extends ContainerBase implements Host {
         for (Map.Entry<ClassLoader, String> entry :
                 childClassLoaders.entrySet()) {
             ClassLoader cl = entry.getKey();
-            if (cl instanceof WebappClassLoader) {
-                if (!((WebappClassLoader) cl).isStarted()) {
+            if (cl instanceof WebappClassLoaderBase) {
+                if (!((WebappClassLoaderBase) cl).isStarted()) {
                     result.add(entry.getValue());
                 }
             }
@@ -803,7 +806,7 @@ public class StandardHost extends ContainerBase implements Host {
                 }
                 if(!found) {
                     Valve valve =
-                        (Valve) Class.forName(errorValve).newInstance();
+                        (Valve) Class.forName(errorValve).getDeclaredConstructor().newInstance();
                     getPipeline().addValve(valve);
                 }
             } catch (Throwable t) {

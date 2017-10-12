@@ -308,7 +308,7 @@ public class TestSSOnonLoginAndBasicAuthenticator extends TomcatBaseTest {
      * Finally, wait for the non-login session to expire and try again..
      * This should be rejected with SC_FORBIDDEN 403 status.
      *
-     * (see bugfix https://issues.apache.org/bugzilla/show_bug.cgi?id=52303)
+     * (see bugfix https://bz.apache.org/bugzilla/show_bug.cgi?id=52303)
      *
      * Note: this test will run for slightly more than 3 minutes.
      */
@@ -358,7 +358,7 @@ public class TestSSOnonLoginAndBasicAuthenticator extends TomcatBaseTest {
                 new HashMap<String,List<String>>();
 
         if (useCookie && (cookies != null)) {
-            reqHeaders.put(CLIENT_COOKIE_HEADER + ":", cookies);
+            reqHeaders.put(CLIENT_COOKIE_HEADER, cookies);
         }
 
         ByteChunk bc = new ByteChunk();
@@ -382,7 +382,7 @@ public class TestSSOnonLoginAndBasicAuthenticator extends TomcatBaseTest {
         Map<String,List<String>> respHeaders = new HashMap<String,List<String>>();
 
         if (useCookie && (cookies != null)) {
-            reqHeaders.put(CLIENT_COOKIE_HEADER + ":", cookies);
+            reqHeaders.put(CLIENT_COOKIE_HEADER, cookies);
         }
         else {
             if (credentials != null) {
@@ -479,9 +479,8 @@ public class TestSSOnonLoginAndBasicAuthenticator extends TomcatBaseTest {
 
     private void setUpNonLogin() throws Exception {
 
-        // Must have a real docBase for webapps - just use temp
-        nonloginContext = tomcat.addContext(CONTEXT_PATH_NOLOGIN,
-                System.getProperty("java.io.tmpdir"));
+        // No file system docBase required
+        nonloginContext = tomcat.addContext(CONTEXT_PATH_NOLOGIN, null);
         nonloginContext.setSessionTimeout(LONG_SESSION_TIMEOUT_MINS);
 
         // Add protected servlet to the context
@@ -518,9 +517,8 @@ public class TestSSOnonLoginAndBasicAuthenticator extends TomcatBaseTest {
 
     private void setUpLogin() throws Exception {
 
-        // Must have a real docBase for webapps - just use temp
-        basicContext = tomcat.addContext(CONTEXT_PATH_LOGIN,
-                System.getProperty("java.io.tmpdir"));
+        // No file system docBase required
+        basicContext = tomcat.addContext(CONTEXT_PATH_LOGIN, null);
         basicContext.setSessionTimeout(SHORT_SESSION_TIMEOUT_MINS);
 
         // Add protected servlet to the context
@@ -568,7 +566,7 @@ public class TestSSOnonLoginAndBasicAuthenticator extends TomcatBaseTest {
     protected void addCookies(Map<String,List<String>> reqHeaders) {
 
         if ((cookies != null) && (cookies.size() > 0)) {
-            reqHeaders.put(CLIENT_COOKIE_HEADER + ":", cookies);
+            reqHeaders.put(CLIENT_COOKIE_HEADER, cookies);
         }
     }
 

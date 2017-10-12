@@ -28,28 +28,27 @@
 
 
   <!-- Defined parameters (overrideable) -->
-  <xsl:param    name="home-name"        select="'The Tomcat Project'"/>
-  <xsl:param    name="home-href"        select="'http://tomcat.apache.org/'"/>
-  <xsl:param    name="home-logo"        select="'/images/tomcat.gif'"/>
-  <xsl:param    name="printer-logo"     select="'/images/printer.gif'"/>
-  <xsl:param    name="apache-logo"      select="'/images/asf-logo.gif'"/>
-  <xsl:param    name="subdir"           select="''"/>
-  <xsl:param    name="relative-path"    select="'.'"/>
-  <xsl:param    name="version"          select="'7.0.x'"/>
+  <xsl:param    name="home-name"           select="'The Tomcat Project'"/>
+  <xsl:param    name="home-href"           select="'http://tomcat.apache.org/'"/>
+  <xsl:param    name="home-logo"           select="'/images/tomcat.png'"/>
+  <xsl:param    name="printer-logo"        select="'/images/printer.gif'"/>
+  <xsl:param    name="apache-logo"         select="'/images/asf-logo.svg'"/>
+  <xsl:param    name="subdir"              select="''"/>
+  <xsl:param    name="relative-path"       select="'.'"/>
+  <xsl:param    name="version"             select="'7.0.x'"/>
   <xsl:param    name="majorversion"        select="'7'"/>
   <xsl:param    name="majorminorversion"   select="'7.0'"/>
-  <xsl:param    name="build-date"       select="'MMM d yyyy'"/>
-  <xsl:param    name="year"             select="'yyyy'"/>
-  <xsl:param    name="void-image"       select="'/images/void.gif'"/>
-  <xsl:param    name="project-menu"     select="'menu'"/>
-  <xsl:param    name="buglink"          select="'http://issues.apache.org/bugzilla/show_bug.cgi?id='"/>
-  <xsl:param    name="revlink"          select="'http://svn.apache.org/viewvc?view=rev&amp;rev='"/>
+  <xsl:param    name="build-date"          select="'MMM d yyyy'"/>
+  <xsl:param    name="year"                select="'yyyy'"/>
+  <xsl:param    name="void-image"          select="'/images/void.gif'"/>
+  <xsl:param    name="project-menu"        select="'menu'"/>
+  <xsl:param    name="buglink"             select="'http://bz.apache.org/bugzilla/show_bug.cgi?id='"/>
+  <xsl:param    name="revlink"             select="'http://svn.apache.org/viewvc?view=rev&amp;rev='"/>
   <xsl:param    name="doclink"             select="'http://tomcat.apache.org/tomcat-7.0-doc'"/>
   <xsl:param    name="sylink"              select="'http://tomcat.apache.org/security-7.html'"/>
   <xsl:param    name="dllink"              select="'http://tomcat.apache.org/download-70.cgi'"/>
-  <xsl:param    name="sitedir"          select="''"/>
-  <xsl:param    name="filename"         select="'-'"/>
-
+  <xsl:param    name="sitedir"             select="''"/>
+  <xsl:param    name="filename"            select="'-'"/>
   <!-- Defined variables (non-overrideable) -->
   <xsl:variable name="body-bg"          select="'#ffffff'"/>
   <xsl:variable name="body-fg"          select="'#000000'"/>
@@ -202,7 +201,7 @@ p.notice {
             <xsl:value-of select="$relative-path"/><xsl:value-of select="$apache-logo"/>
           </xsl:variable>
           <a href="http://www.apache.org/">
-            <img src="{$src}" align="right" alt="Apache Logo" border="0"/>
+            <img src="{$src}" align="right" alt="Apache Logo" border="0" style="width: 266px;height: 83px;"/>
           </a>
         </td>
       </tr>
@@ -374,9 +373,9 @@ p.notice {
         </xsl:when>
         <xsl:otherwise>
           <xsl:if test="
-              count(//*[(local-name()='section' or local-name()='subsection') and @name=current()/@name]) &gt; 1
+              count(//*[self::section or self::subsection][@name=current()/@name]) &gt; 1
               ">
-            <xsl:value-of select="concat(ancestor::section/@name, '/')"/>
+            <xsl:value-of select="concat(parent::*[self::section or self::subsection]/@name, '/')"/>
           </xsl:if>
           <xsl:value-of select="@name"/>
         </xsl:otherwise>
@@ -414,9 +413,9 @@ p.notice {
         </xsl:when>
         <xsl:otherwise>
           <xsl:if test="local-name()='subsection' and
-              count(//*[(local-name()='section' or local-name()='subsection') and @name=current()/@name]) &gt; 1
+              count(//*[self::section or self::subsection][@name=current()/@name]) &gt; 1
               ">
-            <xsl:value-of select="concat(ancestor::section/@name, '/')"/>
+            <xsl:value-of select="concat(parent::*[self::section or self::subsection]/@name, '/')"/>
           </xsl:if>
           <xsl:value-of select="@name"/>
         </xsl:otherwise>
@@ -444,19 +443,6 @@ p.notice {
     </pre>
   </div>
   </xsl:template>
-
-
-  <!-- Process a wrapped source code example - indent -->
-  <xsl:template match="source//indent">
-    <div><xsl:apply-templates /></div>
-  </xsl:template>
-
-
-  <!-- Process a wrapped source code example - outdent -->
-  <xsl:template match="source//outdent">
-    <p><xsl:apply-templates /></p>
-  </xsl:template>
-
 
   <!-- Process an attributes list with nested attribute elements -->
   <xsl:template match="attributes">

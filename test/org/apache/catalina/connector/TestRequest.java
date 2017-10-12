@@ -28,6 +28,7 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.Locale;
 import java.util.TreeMap;
 
 import javax.servlet.ServletException;
@@ -40,6 +41,8 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.catalina.Context;
@@ -52,6 +55,7 @@ import org.apache.catalina.startup.SimpleHttpClient;
 import org.apache.catalina.startup.TestTomcat.MapRealm;
 import org.apache.catalina.startup.Tomcat;
 import org.apache.catalina.startup.TomcatBaseTest;
+import org.apache.tomcat.unittest.TesterRequest;
 import org.apache.tomcat.util.buf.ByteChunk;
 
 /**
@@ -59,8 +63,14 @@ import org.apache.tomcat.util.buf.ByteChunk;
  */
 public class TestRequest extends TomcatBaseTest {
 
+    @BeforeClass
+    public static void setup() {
+        // Some of these tests need this and it used statically so set it once
+        System.setProperty("org.apache.tomcat.util.buf.UDecoder.ALLOW_ENCODED_SLASH", "true");
+    }
+
     /**
-     * Test case for https://issues.apache.org/bugzilla/show_bug.cgi?id=37794
+     * Test case for https://bz.apache.org/bugzilla/show_bug.cgi?id=37794
      * POST parameters are not returned from a call to
      * any of the {@link HttpServletRequest} getParameterXXX() methods if the
      * request is chunked.
@@ -74,19 +84,18 @@ public class TestRequest extends TomcatBaseTest {
         assertTrue(client.isResponse200());
         assertTrue(client.isResponseBodyOK());
         client.reset();
-        client.doRequest(0, false); // Unlimited
-        assertTrue(client.isResponse200());
-        assertTrue(client.isResponseBodyOK());
+        client.doRequest(0, false); // 0 bytes - too small should fail
+        assertTrue(client.isResponse413());
         client.reset();
         client.doRequest(1, false); // 1 byte - too small should fail
-        assertTrue(client.isResponse400());
+        assertTrue(client.isResponse413());
 
         client.reset();
 
         // Edge cases around actual content length
         client.reset();
         client.doRequest(6, false); // Too small should fail
-        assertTrue(client.isResponse400());
+        assertTrue(client.isResponse413());
         client.reset();
         client.doRequest(7, false); // Just enough should pass
         assertTrue(client.isResponse200());
@@ -166,7 +175,8 @@ public class TestRequest extends TomcatBaseTest {
             if (init) return;
 
             Tomcat tomcat = getTomcatInstance();
-            Context root = tomcat.addContext("", TEMP_DIR);
+            // No file system docBase required
+            Context root = tomcat.addContext("", null);
             Tomcat.addServlet(root, "Bug37794", new Bug37794Servlet());
             root.addServletMapping("/test", "Bug37794");
 
@@ -255,7 +265,7 @@ public class TestRequest extends TomcatBaseTest {
 
     /**
      * Test case for
-     * <a href="https://issues.apache.org/bugzilla/show_bug.cgi?id=38113">bug
+     * <a href="https://bz.apache.org/bugzilla/show_bug.cgi?id=38113">bug
      * 38118</a>.
      */
     @Test
@@ -263,9 +273,8 @@ public class TestRequest extends TomcatBaseTest {
         // Setup Tomcat instance
         Tomcat tomcat = getTomcatInstance();
 
-        // Must have a real docBase - just use temp
-        Context ctx =
-            tomcat.addContext("", System.getProperty("java.io.tmpdir"));
+        // No file system docBase required
+        Context ctx = tomcat.addContext("", null);
 
         // Add the Servlet
         Tomcat.addServlet(ctx, "servlet", new EchoQueryStringServlet());
@@ -308,9 +317,8 @@ public class TestRequest extends TomcatBaseTest {
         // Setup Tomcat instance
         Tomcat tomcat = getTomcatInstance();
 
-        // Must have a real docBase - just use temp
-        Context ctx =
-            tomcat.addContext("", System.getProperty("java.io.tmpdir"));
+        // No file system docBase required
+        Context ctx = tomcat.addContext("", null);
 
         LoginConfig config = new LoginConfig();
         config.setAuthMethod("BASIC");
@@ -362,8 +370,8 @@ public class TestRequest extends TomcatBaseTest {
     @Test
     public void testBug49424NoChunking() throws Exception {
         Tomcat tomcat = getTomcatInstance();
-        Context root = tomcat.addContext("",
-                System.getProperty("java.io.tmpdir"));
+        // No file system docBase required
+        Context root = tomcat.addContext("", null);
         Tomcat.addServlet(root, "Bug37794", new Bug37794Servlet());
         root.addServletMapping("/", "Bug37794");
         tomcat.start();
@@ -376,8 +384,8 @@ public class TestRequest extends TomcatBaseTest {
     @Test
     public void testBug49424WithChunking() throws Exception {
         Tomcat tomcat = getTomcatInstance();
-        Context root = tomcat.addContext("",
-                System.getProperty("java.io.tmpdir"));
+        // No file system docBase required
+        Context root = tomcat.addContext("", null);
         Tomcat.addServlet(root, "Bug37794", new Bug37794Servlet());
         root.addServletMapping("/", "Bug37794");
         tomcat.start();
@@ -389,7 +397,7 @@ public class TestRequest extends TomcatBaseTest {
     }
 
     /**
-     * Test case for https://issues.apache.org/bugzilla/show_bug.cgi?id=48692
+     * Test case for https://bz.apache.org/bugzilla/show_bug.cgi?id=48692
      * PUT requests should be able to fetch request parameters coming from
      * the request body (when properly configured using the new parseBodyMethod
      * setting).
@@ -468,8 +476,8 @@ public class TestRequest extends TomcatBaseTest {
     @Test
     public void testBug54984() throws Exception {
         Tomcat tomcat = getTomcatInstance();
-        Context root = tomcat.addContext("",
-                System.getProperty("java.io.tmpdir"));
+        // No file system docBase required
+        Context root = tomcat.addContext("", null);
         root.setAllowCasualMultipartParsing(true);
         Tomcat.addServlet(root, "Bug54984", new Bug54984Servlet());
         root.addServletMapping("/", "Bug54984");
@@ -546,7 +554,8 @@ public class TestRequest extends TomcatBaseTest {
             if (init) return;
 
             Tomcat tomcat = getTomcatInstance();
-            Context root = tomcat.addContext("", TEMP_DIR);
+            // No file system docBase required
+            Context root = tomcat.addContext("", null);
             Tomcat.addServlet(root, "EchoParameters", new EchoParametersServlet());
             root.addServletMapping("/echo", "EchoParameters");
             tomcat.start();
@@ -660,7 +669,7 @@ public class TestRequest extends TomcatBaseTest {
             writer.append("Content-Disposition: form-data; name=\"part\"\r\n");
             writer.append("Content-Type: text/plain; charset=UTF-8\r\n");
             writer.append("\r\n");
-            writer.append("äö").append("\r\n");
+            writer.append("Ã¤Ã¶").append("\r\n");
             writer.flush();
 
             writer.append("\r\n");
@@ -687,7 +696,7 @@ public class TestRequest extends TomcatBaseTest {
                 while ((line = reader.readLine()) != null) {
                     response.add(line);
                 }
-                assertTrue(response.contains("Part äö"));
+                assertTrue(response.contains("Part Ã¤Ã¶"));
             } finally {
                 if (reader != null) {
                     reader.close();
@@ -773,17 +782,66 @@ public class TestRequest extends TomcatBaseTest {
         doBug56501("/pa_th/abc", "/pa_th/abc/xxx", "/pa_th/abc");
     }
 
+    @Test
+    public void testBug56501p() throws Exception {
+        doBug56501("/path/abc", "/path;a=b/abc/xxx", "/path;a=b/abc");
+    }
+
+    @Test
+    public void testBug56501q() throws Exception {
+        doBug56501("/path/abc", "/path/abc;a=b/xxx", "/path/abc;a=b");
+    }
+
+    @Test
+    public void testBug56501r() throws Exception {
+        doBug56501("/path/abc", "/path/abc/xxx;a=b", "/path/abc");
+    }
+
+    @Test
+    public void testBug56501s() throws Exception {
+        doBug56501("/path/abc", "/.;a=b/path/abc/xxx", "/.;a=b/path/abc");
+    }
+
+    @Test
+    public void testBug57215a() throws Exception {
+        doBug56501("/path", "//path", "//path");
+    }
+
+    @Test
+    public void testBug57215b() throws Exception {
+        doBug56501("/path", "//path/", "//path");
+    }
+
+    @Test
+    public void testBug57215c() throws Exception {
+        doBug56501("/path", "/%2Fpath", "/%2Fpath");
+    }
+
+    @Test
+    public void testBug57215d() throws Exception {
+        doBug56501("/path", "/%2Fpath%2F", "/%2Fpath");
+    }
+
+    @Test
+    public void testBug57215e() throws Exception {
+        doBug56501("/path", "/foo/../path", "/foo/../path");
+    }
+
+    @Test
+    public void testBug57215f() throws Exception {
+        doBug56501("/path", "/foo/..%2fpath", "/foo/..%2fpath");
+    }
+
     private void doBug56501(String deployPath, String requestPath, String expected)
             throws Exception {
 
         // Setup Tomcat instance
         Tomcat tomcat = getTomcatInstance();
 
-        // Must have a real docBase - just use temp
-        Context ctx = tomcat.addContext(deployPath,
-                System.getProperty("java.io.tmpdir"));
+        // No file system docBase required
+        Context ctx = tomcat.addContext(deployPath, null);
 
-        Tomcat.addServlet(ctx, "servlet", new Bug56501Servelet());
+        Tomcat.addServlet(ctx, "servlet", new Bug56501Servlet());
         ctx.addServletMapping("/*", "servlet");
 
         tomcat.start();
@@ -796,7 +854,7 @@ public class TestRequest extends TomcatBaseTest {
         assertEquals(expected, resultPath);
     }
 
-    private class Bug56501Servelet extends HttpServlet {
+    private class Bug56501Servlet extends HttpServlet {
 
         private static final long serialVersionUID = 1L;
 
@@ -807,4 +865,35 @@ public class TestRequest extends TomcatBaseTest {
             resp.getWriter().print(req.getContextPath());
         }
     }
+
+    @Test
+    public void getLocaleMultipleHeaders01() throws Exception {
+        TesterRequest req = new TesterRequest();
+
+        req.addHeader("accept-language", "en;q=0.5");
+        req.addHeader("accept-language", "en-gb");
+
+        Locale actual = req.getLocale();
+        Locale expected = new Locale("en", "gb");
+
+        Assert.assertEquals(expected, actual);
+    }
+
+    /*
+     * Reverse header order of getLocaleMultipleHeaders01() and make sure the
+     * result is the same.
+     */
+    @Test
+    public void getLocaleMultipleHeaders02() throws Exception {
+        TesterRequest req = new TesterRequest();
+
+        req.addHeader("accept-language", "en-gb");
+        req.addHeader("accept-language", "en;q=0.5");
+
+        Locale actual = req.getLocale();
+        Locale expected = new Locale("en", "gb");
+
+        Assert.assertEquals(expected, actual);
+    }
+
 }

@@ -23,6 +23,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.Selector;
 
 import org.apache.coyote.ActionCode;
+import org.apache.coyote.ErrorState;
 import org.apache.coyote.RequestInfo;
 import org.apache.juli.logging.Log;
 import org.apache.juli.logging.LogFactory;
@@ -93,10 +94,7 @@ public class AjpNioProcessor extends AbstractAjpProcessor<NioChannel> {
         long soTimeout = endpoint.getSoTimeout();
         boolean cping = false;
 
-        // Error flag
-        error = false;
-
-        while (!error && !endpoint.isPaused()) {
+        while (!getErrorState().isError() && !endpoint.isPaused()) {
             // Parsing the request header
             try {
                 // Get first message of the request
@@ -120,7 +118,7 @@ public class AjpNioProcessor extends AbstractAjpProcessor<NioChannel> {
                     try {
                         output(pongMessageArray, 0, pongMessageArray.length);
                     } catch (IOException e) {
-                        error = true;
+                        setErrorState(ErrorState.CLOSE_NOW, null);
                     }
                     recycle(false);
                     continue;
@@ -130,24 +128,24 @@ public class AjpNioProcessor extends AbstractAjpProcessor<NioChannel> {
                     if (log.isDebugEnabled()) {
                         log.debug("Unexpected message: " + type);
                     }
-                    error = true;
+                    setErrorState(ErrorState.CLOSE_NOW, null);
                     recycle(true);
                     break;
                 }
                 request.setStartTime(System.currentTimeMillis());
             } catch (IOException e) {
-                error = true;
+                setErrorState(ErrorState.CLOSE_NOW, e);
                 break;
             } catch (Throwable t) {
                 ExceptionUtils.handleThrowable(t);
                 log.debug(sm.getString("ajpprocessor.header.error"), t);
                 // 400 - Bad Request
                 response.setStatus(400);
-                adapter.log(request, response, 0);
-                error = true;
+                setErrorState(ErrorState.CLOSE_CLEAN, t);
+                getAdapter().log(request, response, 0);
             }
 
-            if (!error) {
+            if (!getErrorState().isError()) {
                 // Setting up filters, and parse some request headers
                 rp.setStage(org.apache.coyote.Constants.STAGE_PREPARE);
                 try {
@@ -155,55 +153,55 @@ public class AjpNioProcessor extends AbstractAjpProcessor<NioChannel> {
                 } catch (Throwable t) {
                     ExceptionUtils.handleThrowable(t);
                     log.debug(sm.getString("ajpprocessor.request.prepare"), t);
-                    // 400 - Internal Server Error
-                    response.setStatus(400);
-                    adapter.log(request, response, 0);
-                    error = true;
+                    // 500 - Internal Server Error
+                    response.setStatus(500);
+                    setErrorState(ErrorState.CLOSE_CLEAN, t);
+                    getAdapter().log(request, response, 0);
                 }
             }
 
-            if (!error && !cping && endpoint.isPaused()) {
+            if (!getErrorState().isError() && !cping && endpoint.isPaused()) {
                 // 503 - Service unavailable
                 response.setStatus(503);
-                adapter.log(request, response, 0);
-                error = true;
+                setErrorState(ErrorState.CLOSE_CLEAN, null);
+                getAdapter().log(request, response, 0);
             }
             cping = false;
 
             // Process the request in the adapter
-            if (!error) {
+            if (!getErrorState().isError()) {
                 try {
                     rp.setStage(org.apache.coyote.Constants.STAGE_SERVICE);
                     adapter.service(request, response);
                 } catch (InterruptedIOException e) {
-                    error = true;
+                    setErrorState(ErrorState.CLOSE_NOW, e);
                 } catch (Throwable t) {
                     ExceptionUtils.handleThrowable(t);
                     log.error(sm.getString("ajpprocessor.request.process"), t);
                     // 500 - Internal Server Error
                     response.setStatus(500);
-                    adapter.log(request, response, 0);
-                    error = true;
+                    setErrorState(ErrorState.CLOSE_CLEAN, t);
+                    getAdapter().log(request, response, 0);
                 }
             }
 
-            if (isAsync() && !error) {
+            if (isAsync() && !getErrorState().isError()) {
                 break;
             }
 
             // Finish the response if not done yet
-            if (!finished) {
+            if (!finished && getErrorState().isIoAllowed()) {
                 try {
                     finish();
                 } catch (Throwable t) {
                     ExceptionUtils.handleThrowable(t);
-                    error = true;
+                    setErrorState(ErrorState.CLOSE_NOW, t);
                 }
             }
 
             // If there was an error, make sure the request is counted as
             // and error, and update the statistics counter
-            if (error) {
+            if (getErrorState().isError()) {
                 response.setStatus(500);
             }
             request.updateCounters();
@@ -219,7 +217,7 @@ public class AjpNioProcessor extends AbstractAjpProcessor<NioChannel> {
 
         rp.setStage(org.apache.coyote.Constants.STAGE_ENDED);
 
-        if (!error && !endpoint.isPaused()) {
+        if (!getErrorState().isError() && !endpoint.isPaused()) {
             if (isAsync()) {
                 return SocketState.LONG;
             } else {
@@ -256,7 +254,7 @@ public class AjpNioProcessor extends AbstractAjpProcessor<NioChannel> {
             if (param == null) return;
             long timeout = ((Long)param).longValue();
             final KeyAttachment ka =
-                    (KeyAttachment)socketWrapper.getSocket().getAttachment(false);
+                    (KeyAttachment)socketWrapper.getSocket().getAttachment();
             ka.setTimeout(timeout);
             break;
         }
@@ -277,8 +275,8 @@ public class AjpNioProcessor extends AbstractAjpProcessor<NioChannel> {
         // poller. Therefore, it needs to be reset once asycn processing has
         // finished.
         final KeyAttachment attach =
-                (KeyAttachment)socketWrapper.getSocket().getAttachment(false);
-        if (!error && attach != null &&
+                (KeyAttachment)socketWrapper.getSocket().getAttachment();
+        if (!getErrorState().isError() && attach != null &&
                 asyncStateMachine.isAsyncDispatching()) {
             long soTimeout = endpoint.getSoTimeout();
 
@@ -298,29 +296,35 @@ public class AjpNioProcessor extends AbstractAjpProcessor<NioChannel> {
             throws IOException {
         
         KeyAttachment att =
-                (KeyAttachment) socketWrapper.getSocket().getAttachment(false);
+                (KeyAttachment) socketWrapper.getSocket().getAttachment();
         if ( att == null ) throw new IOException("Key must be cancelled");
 
         ByteBuffer writeBuffer =
                 socketWrapper.getSocket().getBufHandler().getWriteBuffer();
 
-        writeBuffer.put(src, offset, length);
-        
-        writeBuffer.flip();
-
-        long writeTimeout = att.getWriteTimeout();
-        Selector selector = null;
-        try {
-            selector = pool.get();
-        } catch ( IOException x ) {
-            //ignore
-        }
-        try {
-            pool.write(writeBuffer, socketWrapper.getSocket(), selector,
-                    writeTimeout, true);
-        }finally { 
-            writeBuffer.clear();
-            if ( selector != null ) pool.put(selector);
+        int thisTime = 0;
+        int written = 0;
+        while (written < length) {
+            int toWrite = Math.min(length - written, writeBuffer.remaining());
+            writeBuffer.put(src, offset + written, toWrite);
+            
+            writeBuffer.flip();
+    
+            long writeTimeout = att.getWriteTimeout();
+            Selector selector = null;
+            try {
+                selector = pool.get();
+            } catch ( IOException x ) {
+                //ignore
+            }
+            try {
+                thisTime = pool.write(writeBuffer, socketWrapper.getSocket(),
+                        selector, writeTimeout, true);
+            } finally { 
+                writeBuffer.clear();
+                if ( selector != null ) pool.put(selector);
+            }
+            written += thisTime;
         }
     }
 
@@ -355,7 +359,9 @@ public class AjpNioProcessor extends AbstractAjpProcessor<NioChannel> {
         ByteBuffer readBuffer =
                 socketWrapper.getSocket().getBufHandler().getReadBuffer();
         readBuffer.clear();
-        readBuffer.limit(n);
+        if (n < readBuffer.capacity()) {
+            readBuffer.limit(n);
+        }
         if ( block ) {
             Selector selector = null;
             try {
@@ -365,7 +371,7 @@ public class AjpNioProcessor extends AbstractAjpProcessor<NioChannel> {
             }
             try {
                 NioEndpoint.KeyAttachment att =
-                        (NioEndpoint.KeyAttachment) socketWrapper.getSocket().getAttachment(false);
+                        (NioEndpoint.KeyAttachment) socketWrapper.getSocket().getAttachment();
                 if ( att == null ) throw new IOException("Key must be cancelled.");
                 nRead = pool.read(readBuffer, socketWrapper.getSocket(),
                         selector, att.getTimeout());

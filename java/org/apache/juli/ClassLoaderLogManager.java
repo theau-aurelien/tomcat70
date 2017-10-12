@@ -51,8 +51,21 @@ import java.util.logging.Logger;
  * Short configuration information will be sent to <code>System.err</code>.
  */
 public class ClassLoaderLogManager extends LogManager {
+
+    private static final boolean isJava9;
+
     public static final String DEBUG_PROPERTY =
             ClassLoaderLogManager.class.getName() + ".debug";
+
+    static {
+        Class<?> c = null;
+        try {
+            c = Class.forName("java.lang.Runtime$Version");
+        } catch (ClassNotFoundException e) {
+            // Must be Java 8
+        }
+        isJava9 = c != null;
+    }
 
     private final class Cleaner extends Thread {
         
@@ -87,7 +100,7 @@ public class ClassLoaderLogManager extends LogManager {
      * application redeployment.
      */
     protected final Map<ClassLoader, ClassLoaderLogInfo> classLoaderLoggers = 
-        new WeakHashMap<ClassLoader, ClassLoaderLogInfo>();
+            new WeakHashMap<ClassLoader, ClassLoaderLogInfo>(); // Guarded by this
 
     
     /**
@@ -207,7 +220,7 @@ public class ClassLoaderLogManager extends LogManager {
         // Unlike java.util.logging, the default is to not delegate if a list of handlers
         // has been specified for the logger.
         String useParentHandlersString = getProperty(loggerName + ".useParentHandlers");
-        if (Boolean.valueOf(useParentHandlersString).booleanValue()) {
+        if (Boolean.parseBoolean(useParentHandlersString)) {
             logger.setUseParentHandlers(true);
         }
         
@@ -274,7 +287,7 @@ public class ClassLoaderLogManager extends LogManager {
     }
 
 
-    private String findProperty(String name) {
+    private synchronized String findProperty(String name) {
         ClassLoader classLoader = Thread.currentThread()
                 .getContextClassLoader();
         ClassLoaderLogInfo info = getClassLoaderInfo(classLoader);
@@ -341,7 +354,7 @@ public class ClassLoaderLogManager extends LogManager {
     /**
      * Shuts down the logging system.
      */
-    public void shutdown() {
+    public synchronized void shutdown() {
         // The JVM is being shutdown. Make sure all loggers for all class
         // loaders are shutdown
         for (ClassLoaderLogInfo clLogInfo : classLoaderLoggers.values()) {
@@ -385,7 +398,7 @@ public class ClassLoaderLogManager extends LogManager {
      * @param classLoader The classloader for which we will retrieve or build the 
      *                    configuration
      */
-    protected ClassLoaderLogInfo getClassLoaderInfo(ClassLoader classLoader) {
+    protected synchronized ClassLoaderLogInfo getClassLoaderInfo(ClassLoader classLoader) {
         
         if (classLoader == null) {
             classLoader = ClassLoader.getSystemClassLoader();
@@ -416,7 +429,7 @@ public class ClassLoaderLogManager extends LogManager {
      * @param classLoader 
      * @throws IOException Error
      */
-    protected void readConfiguration(ClassLoader classLoader)
+    protected synchronized void readConfiguration(ClassLoader classLoader)
         throws IOException {
         
         InputStream is = null;
@@ -465,17 +478,20 @@ public class ClassLoaderLogManager extends LogManager {
                 try {
                     is = new FileInputStream(replace(configFileStr));
                 } catch (IOException e) {
-                    // Ignore
+                    System.err.println("Configuration error");
+                    e.printStackTrace();
                 }
             }
             // Try the default JVM configuration
             if (is == null) {
-                File defaultFile = new File(new File(System.getProperty("java.home"), "lib"), 
+                File defaultFile = new File(new File(System.getProperty("java.home"),
+                                                     isJava9 ? "conf" : "lib"),
                     "logging.properties");
                 try {
                     is = new FileInputStream(defaultFile);
                 } catch (IOException e) {
-                    // Critical problem, do something ...
+                    System.err.println("Configuration error");
+                    e.printStackTrace();
                 }
             }
         }
@@ -512,7 +528,7 @@ public class ClassLoaderLogManager extends LogManager {
      * @param classLoader for which the configuration will be loaded
      * @throws IOException If something wrong happens during loading
      */
-    protected void readConfiguration(InputStream is, ClassLoader classLoader)
+    protected synchronized void readConfiguration(InputStream is, ClassLoader classLoader)
         throws IOException {
         
         ClassLoaderLogInfo info = classLoaderLoggers.get(classLoader);
@@ -545,7 +561,7 @@ public class ClassLoaderLogManager extends LogManager {
                     continue;
                 }
                 // Parse and remove a prefix (prefix start with a digit, such as 
-                // "10WebappFooHanlder.")
+                // "10WebappFooHandler.")
                 if (Character.isDigit(handlerClassName.charAt(0))) {
                     int pos = handlerClassName.indexOf('.');
                     if (pos >= 0) {
@@ -636,10 +652,10 @@ public class ClassLoaderLogManager extends LogManager {
     protected static final class LogNode {
         Logger logger;
 
-        protected final Map<String, LogNode> children = 
+        final Map<String, LogNode> children = 
             new HashMap<String, LogNode>();
 
-        protected final LogNode parent;
+        final LogNode parent;
 
         LogNode(final LogNode parent, final Logger logger) {
             this.parent = parent;

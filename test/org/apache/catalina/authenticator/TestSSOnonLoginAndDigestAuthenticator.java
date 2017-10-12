@@ -33,9 +33,9 @@ import org.apache.catalina.deploy.SecurityConstraint;
 import org.apache.catalina.startup.TesterServlet;
 import org.apache.catalina.startup.Tomcat;
 import org.apache.catalina.startup.TomcatBaseTest;
-import org.apache.catalina.util.ConcurrentMessageDigest;
-import org.apache.catalina.util.MD5Encoder;
 import org.apache.tomcat.util.buf.ByteChunk;
+import org.apache.tomcat.util.security.ConcurrentMessageDigest;
+import org.apache.tomcat.util.security.MD5Encoder;
 
 /**
  * Test DigestAuthenticator and NonLoginAuthenticator when a
@@ -177,7 +177,7 @@ public class TestSSOnonLoginAndDigestAuthenticator extends TomcatBaseTest {
      * Finally, wait for the non-login session to expire and try again..
      * This should be rejected with SC_FORBIDDEN 403 status.
      *
-     * (see bugfix https://issues.apache.org/bugzilla/show_bug.cgi?id=52303)
+     * (see bugfix https://bz.apache.org/bugzilla/show_bug.cgi?id=52303)
      */
     @Test
     public void testDigestExpiredAcceptProtectedWithCookies() throws Exception {
@@ -329,9 +329,8 @@ public class TestSSOnonLoginAndDigestAuthenticator extends TomcatBaseTest {
 
     private void setUpNonLogin(Tomcat tomcat) throws Exception {
 
-        // Must have a real docBase for webapps - just use temp
-        Context ctxt = tomcat.addContext(CONTEXT_PATH_NOLOGIN,
-                System.getProperty("java.io.tmpdir"));
+        // No file system docBase required
+        Context ctxt = tomcat.addContext(CONTEXT_PATH_NOLOGIN, null);
         ctxt.setSessionTimeout(LONG_TIMEOUT_SECS);
 
         // Add protected servlet
@@ -363,9 +362,8 @@ public class TestSSOnonLoginAndDigestAuthenticator extends TomcatBaseTest {
 
     private void setUpDigest(Tomcat tomcat) throws Exception {
 
-        // Must have a real docBase for webapps - just use temp
-        Context ctxt = tomcat.addContext(CONTEXT_PATH_DIGEST,
-                System.getProperty("java.io.tmpdir"));
+        // No file system docBase required
+        Context ctxt = tomcat.addContext(CONTEXT_PATH_DIGEST, null);
         ctxt.setSessionTimeout(SHORT_TIMEOUT_SECS);
 
         // Add protected servlet
@@ -485,7 +483,7 @@ public class TestSSOnonLoginAndDigestAuthenticator extends TomcatBaseTest {
     protected void addCookies(Map<String,List<String>> reqHeaders) {
 
         if ((cookies != null) && (cookies.size() > 0)) {
-            reqHeaders.put(BROWSER_COOKIES + ":", cookies);
+            reqHeaders.put(BROWSER_COOKIES, cookies);
         }
     }
 }

@@ -617,8 +617,30 @@ public class RemoteIpFilter implements Filter {
         public void setServerPort(int serverPort) {
             this.serverPort = serverPort;
         }
+
+        @Override
+        public StringBuffer getRequestURL() {
+            StringBuffer url = new StringBuffer();
+            String scheme = getScheme();
+            int port = getServerPort();
+            if (port < 0) {
+                port = 80; // Work around java.net.URL bug
+            }
+            url.append(scheme);
+            url.append("://");
+            url.append(getServerName());
+            if ((scheme.equals("http") && (port != 80))
+                || (scheme.equals("https") && (port != 443))) {
+                url.append(':');
+                url.append(port);
+            }
+            url.append(getRequestURI());
+
+            return url;
+        }
     }
     
+
     /**
      * {@link Pattern} for a comma delimited string that support whitespace characters
      */
@@ -634,7 +656,7 @@ public class RemoteIpFilter implements Filter {
      * Logger
      */
     private static final Log log = LogFactory.getLog(RemoteIpFilter.class);
-    
+
     protected static final String PROTOCOL_HEADER_PARAMETER = "protocolHeader";
     
     protected static final String PROTOCOL_HEADER_HTTPS_VALUE_PARAMETER = "protocolHeaderHttpsValue";
@@ -862,7 +884,7 @@ public class RemoteIpFilter implements Filter {
     }
 
     /**
-     * Wrap the incoming <code>request</code> in a {@link XForwardedRequest} if the http header <code>x-forwareded-for</code> is not empty.
+     * Wrap the incoming <code>request</code> in a {@link XForwardedRequest} if the http header <code>x-forwarded-for</code> is not empty.
      */
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) throws IOException, ServletException {

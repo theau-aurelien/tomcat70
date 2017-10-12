@@ -62,7 +62,7 @@ public class TestCustomSsl extends TomcatBaseTest {
         connector.setProperty("sslProtocol", "tls");
 
         File keystoreFile =
-            new File("test/org/apache/tomcat/util/net/localhost.jks");
+            new File("test/" + TesterSupport.LOCALHOST_JKS);
         connector.setAttribute(
                 "keystoreFile", keystoreFile.getAbsolutePath());
 
@@ -75,7 +75,7 @@ public class TestCustomSsl extends TomcatBaseTest {
         tomcat.start();
         ByteChunk res = getUrl("https://localhost:" + getPort() +
             "/examples/servlets/servlet/HelloWorldExample");
-        assertTrue(res.toString().indexOf("<h1>Hello World!</h1>") > 0);
+        assertTrue(res.toString().indexOf("<a href=\"../helloworld.html\">") > 0);
     }
 
     @Test
@@ -107,7 +107,7 @@ public class TestCustomSsl extends TomcatBaseTest {
         // Override the defaults
         ProtocolHandler handler = tomcat.getConnector().getProtocolHandler();
         if (handler instanceof AbstractHttp11JsseProtocol) {
-            ((AbstractHttp11JsseProtocol) handler).setTruststoreFile(null);
+            ((AbstractHttp11JsseProtocol<?>) handler).setTruststoreFile(null);
         } else {
             // Unexpected
             fail("Unexpected handler type");
@@ -146,7 +146,7 @@ public class TestCustomSsl extends TomcatBaseTest {
         }
         if (serverTrustAll) {
             assertEquals(200, rc);
-            assertEquals("OK", res.toString());
+            assertEquals("OK-" + TesterSupport.ROLE, res.toString());
         } else {
             assertTrue(rc != 200);
             assertEquals("", res.toString());

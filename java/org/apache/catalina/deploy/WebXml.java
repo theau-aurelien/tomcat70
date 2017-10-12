@@ -1247,15 +1247,24 @@ public class WebXml {
 
     private static void appendElement(StringBuilder sb, String indent,
             String elementName, String value) {
-        if (value == null || value.length() == 0) return;
-        sb.append(indent);
-        sb.append('<');
-        sb.append(elementName);
-        sb.append('>');
-        sb.append(escapeXml(value));
-        sb.append("</");
-        sb.append(elementName);
-        sb.append(">\n");
+        if (value == null) {
+            return;
+        }
+        if (value.length() == 0) {
+            sb.append(indent);
+            sb.append('<');
+            sb.append(elementName);
+            sb.append("/>\n");
+        } else {
+            sb.append(indent);
+            sb.append('<');
+            sb.append(elementName);
+            sb.append('>');
+            sb.append(escapeXml(value));
+            sb.append("</");
+            sb.append(elementName);
+            sb.append(">\n");
+        }
     }
 
     private static void appendElement(StringBuilder sb, String indent,
@@ -2222,7 +2231,7 @@ public class WebXml {
 
         if (dest.getMaxFileSize() == null) {
             dest.setMaxFileSize(src.getMaxFileSize());
-        } else if (src.getLocation() != null) {
+        } else if (src.getMaxFileSize() != null) {
             if (failOnConflict &&
                     !src.getMaxFileSize().equals(dest.getMaxFileSize())) {
                 return false;
@@ -2243,7 +2252,7 @@ public class WebXml {
     }
 
 
-    private static <T> boolean mergeLifecycleCallback(
+    private static boolean mergeLifecycleCallback(
             Map<String, String> fragmentMap, Map<String, String> tempMap,
             WebXml fragment, String mapName) {
         for (Entry<String, String> entry : fragmentMap.entrySet()) {

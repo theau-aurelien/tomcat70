@@ -17,78 +17,55 @@
  */
 package org.apache.tomcat.util.bcel.classfile;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
+import java.io.DataInput;
 import java.io.IOException;
-import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.apache.tomcat.util.bcel.Constants;
+import org.apache.tomcat.util.bcel.Const;
 
 /**
  * represents one annotation in the annotation table
- * 
- * @author  <A HREF="mailto:dbrosius@mebigfatguy.com">D. Brosius</A>
- * @since 6.0
  */
-public class AnnotationEntry implements Constants, Serializable {
+public class AnnotationEntry {
 
-    private static final long serialVersionUID = 1L;
-    
     private final int type_index;
     private final ConstantPool constant_pool;
 
-    private List<ElementValuePair> element_value_pairs;
-    
-    /**
-     * Factory method to create an AnnotionEntry from a DataInputStream
-     * 
-     * @param file
+    private final List<ElementValuePair> element_value_pairs;
+
+    /*
+     * Creates an AnnotationEntry from a DataInputStream
+     *
+     * @param input
      * @param constant_pool
-     * @return the entry
      * @throws IOException
      */
-    public static AnnotationEntry read(DataInputStream file, ConstantPool constant_pool) throws IOException {
-        
-        final AnnotationEntry annotationEntry = new AnnotationEntry(file.readUnsignedShort(), constant_pool);
-        final int num_element_value_pairs = (file.readUnsignedShort());
-        annotationEntry.element_value_pairs = new ArrayList<ElementValuePair>();
+    AnnotationEntry(final DataInput input, final ConstantPool constant_pool) throws IOException {
+
+        this.constant_pool = constant_pool;
+
+        type_index = input.readUnsignedShort();
+        final int num_element_value_pairs = input.readUnsignedShort();
+
+        element_value_pairs = new ArrayList<ElementValuePair>(num_element_value_pairs);
         for (int i = 0; i < num_element_value_pairs; i++) {
-            annotationEntry.element_value_pairs.add(new ElementValuePair(file.readUnsignedShort(), ElementValue.readElementValue(file, constant_pool),
-                    constant_pool));
+            element_value_pairs.add(new ElementValuePair(input, constant_pool));
         }
-        return annotationEntry;
     }
 
-    public AnnotationEntry(int type_index, ConstantPool constant_pool) {
-        this.type_index = type_index;
-        this.constant_pool = constant_pool;
-    }
-    
     /**
      * @return the annotation type name
      */
     public String getAnnotationType() {
-        final ConstantUtf8 c = (ConstantUtf8) constant_pool.getConstant(type_index, CONSTANT_Utf8);
+        final ConstantUtf8 c = (ConstantUtf8) constant_pool.getConstant(type_index, Const.CONSTANT_Utf8);
         return c.getBytes();
     }
 
     /**
      * @return the element value pairs in this annotation entry
      */
-    public ElementValuePair[] getElementValuePairs() {
-        // TODO return List
-        return element_value_pairs.toArray(new ElementValuePair[element_value_pairs.size()]);
-    }
-
-    public void dump(DataOutputStream dos) throws IOException {
-        dos.writeShort(type_index); // u2 index of type name in cpool
-        dos.writeShort(element_value_pairs.size()); // u2 element_value pair
-        // count
-        for (int i = 0; i < element_value_pairs.size(); i++) {
-            final ElementValuePair envp = element_value_pairs.get(i);
-            envp.dump(dos);
-        }
+    public List<ElementValuePair> getElementValuePairs() {
+        return element_value_pairs;
     }
 }

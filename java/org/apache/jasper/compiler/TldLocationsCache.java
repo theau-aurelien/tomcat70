@@ -32,7 +32,7 @@ import javax.servlet.ServletContext;
 
 import org.apache.jasper.Constants;
 import org.apache.jasper.JasperException;
-import org.apache.jasper.util.ExceptionUtils;
+import org.apache.jasper.runtime.ExceptionUtils;
 import org.apache.jasper.xmlparser.ParserUtils;
 import org.apache.jasper.xmlparser.TreeNode;
 import org.apache.juli.logging.Log;
@@ -244,11 +244,9 @@ public class TldLocationsCache {
             tldScanResourcePaths(WEB_INF);
             
             JarScanner jarScanner = JarScannerFactory.getJarScanner(ctxt);
-            if (jarScanner != null) {
-                jarScanner.scan(ctxt,
-                        Thread.currentThread().getContextClassLoader(),
-                        new TldJarScannerCallback(), noTldJars);
-            }
+            jarScanner.scan(ctxt,
+                    Thread.currentThread().getContextClassLoader(),
+                    new TldJarScannerCallback(), noTldJars);
 
             initialized = true;
         } catch (Exception ex) {

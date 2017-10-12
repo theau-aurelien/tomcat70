@@ -5,9 +5,9 @@
  * The ASF licenses this file to You under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with
  * the License.  You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -271,13 +271,13 @@ public class DataSourceRealm
      */
     @Override
     public Principal authenticate(String username, String credentials) {
-        
+
         // No user or no credentials
         // Can't possibly authenticate, don't bother the database then
         if (username == null || credentials == null) {
             return null;
         }
-        
+
         Connection dbConnection = null;
 
         // Ensure that we have an open database connection
@@ -286,13 +286,16 @@ public class DataSourceRealm
             // If the db connection open fails, return "not authenticated"
             return null;
         }
-        
-        // Acquire a Principal object for this user
-        Principal principal = authenticate(dbConnection, username, credentials);
-            
-        close(dbConnection);
 
-        return principal;
+        try
+        {
+            // Acquire a Principal object for this user
+            return authenticate(dbConnection, username, credentials);
+        }
+        finally
+        {
+            close(dbConnection);
+        }
     }
 
 
@@ -312,25 +315,43 @@ public class DataSourceRealm
      *  authenticating this username
      */
     protected Principal authenticate(Connection dbConnection,
-                                               String username,
-                                               String credentials) {
+                                     String username,
+                                     String credentials) {
+        // No user or no credentials
+        // Can't possibly authenticate, don't bother the database then
+        if (username == null || credentials == null) {
+            if (containerLog.isTraceEnabled())
+                containerLog.trace(sm.getString("dataSourceRealm.authenticateFailure",
+                                                username));
+            return null;
+        }
 
+        // Look up the user's credentials
         String dbCredentials = getPassword(dbConnection, username);
+
+        if(dbCredentials == null) {
+            // User was not found in the database.
+            // Waste a bit of time as not to reveal that the user does not exist.
+            compareCredentials(credentials, getClass().getName());
+
+            if (containerLog.isTraceEnabled())
+                containerLog.trace(sm.getString("dataSourceRealm.authenticateFailure",
+                                                username));
+            return null;
+        }
 
         // Validate the user's credentials
         boolean validated = compareCredentials(credentials, dbCredentials);
 
         if (validated) {
             if (containerLog.isTraceEnabled())
-                containerLog.trace(
-                    sm.getString("dataSourceRealm.authenticateSuccess",
-                                 username));
+                containerLog.trace(sm.getString("dataSourceRealm.authenticateSuccess",
+                                                username));
         } else {
             if (containerLog.isTraceEnabled())
-                containerLog.trace(
-                    sm.getString("dataSourceRealm.authenticateFailure",
-                                 username));
-            return (null);
+                containerLog.trace(sm.getString("dataSourceRealm.authenticateFailure",
+                                                username));
+            return null;
         }
 
         ArrayList<String> list = getRoles(dbConnection, username);
@@ -355,7 +376,7 @@ public class DataSourceRealm
         try {
             if (!dbConnection.getAutoCommit()) {
                 dbConnection.commit();
-            }            
+            }
         } catch (SQLException e) {
             containerLog.error("Exception committing connection before closing:", e);
         }
@@ -389,7 +410,7 @@ public class DataSourceRealm
         } catch (Exception e) {
             // Log the problem for posterity
             containerLog.error(sm.getString("dataSourceRealm.exception"), e);
-        }  
+        }
         return null;
     }
 
@@ -418,18 +439,18 @@ public class DataSourceRealm
         }
 
         try {
-            return getPassword(dbConnection, username);            
+            return getPassword(dbConnection, username);
         } finally {
             close(dbConnection);
         }
     }
-    
+
     /**
      * Return the password associated with the given principal's user name.
      * @param dbConnection The database connection to be used
      * @param username Username for which password should be retrieved
      */
-    protected String getPassword(Connection dbConnection, 
+    protected String getPassword(Connection dbConnection,
                                  String username) {
 
         ResultSet rs = null;
@@ -444,7 +465,7 @@ public class DataSourceRealm
             }
 
             return (dbCredentials != null) ? dbCredentials.trim() : null;
-            
+
         } catch(SQLException e) {
             containerLog.error(
                     sm.getString("dataSourceRealm.getPassword.exception",
@@ -461,10 +482,10 @@ public class DataSourceRealm
                     containerLog.error(
                         sm.getString("dataSourceRealm.getPassword.exception",
                              username), e);
-                
+
             }
         }
-        
+
         return null;
     }
 
@@ -508,7 +529,7 @@ public class DataSourceRealm
             close(dbConnection);
         }
     }
-    
+
     /**
      * Return the roles associated with the given user name
      * @param dbConnection The database connection to be used
@@ -516,7 +537,7 @@ public class DataSourceRealm
      */
     protected ArrayList<String> getRoles(Connection dbConnection,
                                      String username) {
-        
+
         if (allRolesMode != AllRolesMode.STRICT_MODE && !isRoleStoreDefined()) {
             // Using an authentication only configuration and no role store has
             // been defined so don't spend cycles looking
@@ -526,12 +547,12 @@ public class DataSourceRealm
         ResultSet rs = null;
         PreparedStatement stmt = null;
         ArrayList<String> list = null;
-        
+
         try {
             stmt = roles(dbConnection, username);
             rs = stmt.executeQuery();
             list = new ArrayList<String>();
-            
+
             while (rs.next()) {
                 String role = rs.getString(1);
                 if (role != null) {
@@ -557,7 +578,7 @@ public class DataSourceRealm
                                      username), e);
             }
         }
-        
+
         return null;
     }
 
@@ -581,7 +602,7 @@ public class DataSourceRealm
         return (credentials);
 
     }
-    
+
     /**
      * Return a PreparedStatement configured to perform the SELECT required
      * to retrieve user roles for the specified username.
@@ -594,7 +615,7 @@ public class DataSourceRealm
     private PreparedStatement roles(Connection dbConnection, String username)
         throws SQLException {
 
-        PreparedStatement roles = 
+        PreparedStatement roles =
             dbConnection.prepareStatement(preparedRoles);
 
         roles.setString(1, username);
@@ -640,7 +661,7 @@ public class DataSourceRealm
         temp.append(userNameCol);
         temp.append(" = ?");
         preparedCredentials = temp.toString();
-        
+
         super.startInternal();
     }
 }

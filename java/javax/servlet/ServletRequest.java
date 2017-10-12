@@ -47,7 +47,7 @@ public interface ServletRequest {
      * requests made using HTTPS, the attribute
      * <code>javax.servlet.request.X509Certificate</code> can be used to
      * retrieve information on the certificate of the client. Attributes can
-     * also be set programatically using {@link ServletRequest#setAttribute}.
+     * also be set programmatically using {@link ServletRequest#setAttribute}.
      * This allows information to be embedded into a request before a
      * {@link RequestDispatcher} call.
      * <p>
@@ -380,6 +380,8 @@ public interface ServletRequest {
     public RequestDispatcher getRequestDispatcher(String path);
 
     /**
+     * @param path The virtual path to be converted to a real path
+     * @return {@link ServletContext#getRealPath(String)}
      * @deprecated As of Version 2.1 of the Java Servlet API, use
      *             {@link ServletContext#getRealPath} instead.
      */
@@ -433,17 +435,18 @@ public interface ServletRequest {
 
     /**
      * @return TODO
-     * @throws java.lang.IllegalStateException
-     *             If async is not supported for this request
+     * @throws IllegalStateException If async is not supported for this request
      * @since Servlet 3.0 TODO SERVLET3 - Add comments
      */
     public AsyncContext startAsync();
 
     /**
-     * @param servletRequest
-     * @param servletResponse
+     * @param servletRequest    The ServletRequest with which to initialise the
+     *                          asynchronous context
+     * @param servletResponse   The ServletResponse with which to initialise the
+     *                          asynchronous context
      * @return TODO
-     * @throws java.lang.IllegalStateException
+     * @throws IllegalStateException If async is not supported for this request
      * @since Servlet 3.0 TODO SERVLET3 - Add comments
      */
     public AsyncContext startAsync(ServletRequest servletRequest,
@@ -462,9 +465,14 @@ public interface ServletRequest {
     public boolean isAsyncSupported();
 
     /**
-     * @return TODO
-     * @throws java.lang.IllegalStateException
-     * @since Servlet 3.0 TODO SERVLET3 - Add comments
+     * Get the current AsyncContext.
+     *
+     * @return The current AsyncContext
+     *
+     * @throws IllegalStateException if the request is not in asynchronous mode
+     *         (i.e. @link #isAsyncStarted() is {@code false})
+     *
+     * @since Servlet 3.0
      */
     public AsyncContext getAsyncContext();
 

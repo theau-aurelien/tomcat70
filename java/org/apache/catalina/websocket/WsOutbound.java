@@ -32,7 +32,7 @@ import org.apache.tomcat.util.res.StringManager;
  * client) are synchronized to prevent multiple threads trying to write to the
  * client at the same time.
  * 
- * @deprecated  Replaced by the JSR356 WebSocket 1.0 implementation and will be
+ * @deprecated  Replaced by the JSR356 WebSocket 1.1 implementation and will be
  *              removed in Tomcat 8.0.x.  
  */
 @Deprecated
@@ -45,7 +45,7 @@ public class WsOutbound {
     /**
      * This state lock is used rather than synchronized methods to allow error
      * handling to be managed outside of the synchronization else deadlocks may
-     * occur such as https://issues.apache.org/bugzilla/show_bug.cgi?id=55524
+     * occur such as https://bz.apache.org/bugzilla/show_bug.cgi?id=55524
      */
     private final Object stateLock = new Object();
     
@@ -98,7 +98,7 @@ public class WsOutbound {
                 }
                 if (text == null) {
                     text = Boolean.FALSE;
-                } else if (text == Boolean.TRUE) {
+                } else if (Boolean.TRUE.equals(text)) {
                     // Flush the character data
                     flush();
                     text = Boolean.FALSE;
@@ -141,7 +141,7 @@ public class WsOutbound {
         
                 if (text == null) {
                     text = Boolean.TRUE;
-                } else if (text == Boolean.FALSE) {
+                } else if (Boolean.FALSE.equals(text)) {
                     // Flush the binary data
                     flush();
                     text = Boolean.TRUE;

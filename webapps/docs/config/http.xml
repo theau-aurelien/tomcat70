@@ -112,8 +112,10 @@
     <attribute name="maxPostSize" required="false">
       <p>The maximum size in bytes of the POST which will be handled by
       the container FORM URL parameter parsing. The limit can be disabled by
-      setting this attribute to a value less than or equal to 0.
-      If not specified, this attribute is set to 2097152 (2 megabytes).</p>
+      setting this attribute to a value less than zero. If not specified, this
+      attribute is set to 2097152 (2 megabytes). Note that the
+      <a href="filter.html#Failed_Request_Filter"><code>FailedRequestFilter</code></a>
+      can be used to reject requests that exceed this limit.</p>
     </attribute>
 
     <attribute name="maxSavePostSize" required="false">
@@ -236,6 +238,15 @@
       Request.setCharacterEncoding method was also used for the parameters from
       the URL. The default value is <code>false</code>.
       </p>
+      <p><strong>Notes:</strong> 1) This setting is applied only to the
+      query string of a request. Unlike <code>URIEncoding</code> it does not
+      affect the path portion of a request URI. 2) If request character
+      encoding is not known (is not provided by a browser and is not set by
+      <code>SetCharacterEncodingFilter</code> or a similar filter using
+      Request.setCharacterEncoding method), the default encoding is always
+      "ISO-8859-1". The <code>URIEncoding</code> setting has no effect on
+      this default.
+      </p>
     </attribute>
 
     <attribute name="useIPVHosts" required="false">
@@ -292,6 +303,12 @@
       associated with the server.</p>
     </attribute>
 
+    <attribute name="allowedTrailerHeaders" required="false">
+      <p>By default Tomcat will ignore all trailer headers when processing
+      chunked input. For a header to be processed, it must be added to this
+      comma-separated list of header names.</p>
+    </attribute>
+
     <attribute name="bindOnInit" required="false">
       <p>Controls when the socket used by the connector is bound. By default it
       is bound when the connector is initiated and unbound when the connector is
@@ -299,10 +316,14 @@
       connector is started and unbound when it is stopped.</p>
     </attribute>
 
-    <attribute name="compressableMimeType" required="false">
+    <attribute name="compressibleMimeType" required="false">
       <p>The value is a comma separated list of MIME types for which HTTP
       compression may be used.
-      The default value is <code>text/html,text/xml,text/plain</code>.</p>
+      The default value is
+      <code>
+      text/html,text/xml,text/plain,text/css,text/javascript,application/javascript
+      </code>.
+      </p>
     </attribute>
 
     <attribute name="compression" required="false">
@@ -411,6 +432,12 @@
       and connections are not counted.</p>
     </attribute>
 
+    <attribute name="maxCookieCount" required="false">
+      <p>The maximum number of cookies that are permitted for a request. A value
+      of less than zero means no limit. If not specified, a default value of 200
+      will be used.</p>
+    </attribute>
+
     <attribute name="maxExtensionSize" required="false">
       <p>Limits the total length of chunk extensions in chunked HTTP requests.
       If the value is <code>-1</code>, no limit will be imposed. If not
@@ -431,13 +458,26 @@
       If not specified, this attribute is set to 100.</p>
     </attribute>
 
+    <attribute name="maxSwallowSize" required="false">
+      <p>The maximum number of request body bytes (excluding transfer encoding
+      overhead) that will be swallowed by Tomcat for an aborted upload. An
+      aborted upload is when Tomcat knows that the request body is going to be
+      ignored but the client still sends it. If Tomcat does not swallow the body
+      the client is unlikely to see the response. If not specified the default
+      of 2097152 (2 megabytes) will be used. A value of less than zero indicates
+      that no limit should be enforced.</p>
+    </attribute>
+
     <attribute name="maxThreads" required="false">
       <p>The maximum number of request processing threads to be created
       by this <strong>Connector</strong>, which therefore determines the
       maximum number of simultaneous requests that can be handled.  If
       not specified, this attribute is set to 200. If an executor is associated
       with this connector, this attribute is ignored as the connector will
-      execute tasks using the executor rather than an internal thread pool.</p>
+      execute tasks using the executor rather than an internal thread pool. Note
+      that if an executor is configured any value set for this attribute will be
+      recorded correctly but it will be reported (e.g. via JMX) as
+      <code>-1</code> to make clear that it is not used.</p>
     </attribute>
 
     <attribute name="maxTrailerSize" required="false">
@@ -449,7 +489,12 @@
 
     <attribute name="minSpareThreads" required="false">
       <p>The minimum number of threads always kept running. If not specified,
-      the default of <code>10</code> is used.</p>
+      the default of <code>10</code> is used. If an executor is associated
+      with this connector, this attribute is ignored as the connector will
+      execute tasks using the executor rather than an internal thread pool. Note
+      that if an executor is configured any value set for this attribute will be
+      recorded correctly but it will be reported (e.g. via JMX) as
+      <code>-1</code> to make clear that it is not used.</p>
     </attribute>
 
     <attribute name="noCompressionUserAgents" required="false">
@@ -469,6 +514,15 @@
       the maxThreads setting. If using Servlet 3.0 asynchronous processing, a
       good default is to use the larger of maxThreads and the maximum number of
       expected concurrent requests (synchronous and asynchronous).</p>
+    </attribute>
+
+    <attribute name="rejectIllegalHeaderName" required="false">
+      <p>If an HTTP request is received that contains an illegal header name
+      (i.e. the header name is not a token) this setting determines if the
+      request will be rejected with a 400 response (<code>true</code>) or if the
+      illegal header be ignored (<code>false</code>). The default value is
+      <code>false</code> which will cause the request to be processed but the
+      illegal header will be ignored.</p>
     </attribute>
 
     <attribute name="restrictedUserAgents" required="false">
@@ -519,13 +573,17 @@
       The default value is <code>5</code> (the value of the
       <code>java.lang.Thread.NORM_PRIORITY</code> constant). See the JavaDoc
       for the <code>java.lang.Thread</code> class for more details on what
-      this priority means.
-      </p>
+      this priority means. If an executor is associated
+      with this connector, this attribute is ignored as the connector will
+      execute tasks using the executor rather than an internal thread pool. Note
+      that if an executor is configured any value set for this attribute will be
+      recorded correctly but it will be reported (e.g. via JMX) as
+      <code>-1</code> to make clear that it is not used.</p>
     </attribute>
 
     <attribute name="upgradeAsyncWriteBufferSize" required="false">
       <p>The default size of the buffer to allocate to for asynchronous writes
-      that can not be completed in a single operation. Data that can't be
+      that can not be completed in a single operation, specified in bytes. Data that can't be
       written immediately will be stored in this buffer until it can be written.
       If more data needs to be stored than space is available in the buffer than
       the size of the buffer will be increased for the duration of the write. If
@@ -588,19 +646,19 @@
       </attribute>
       <attribute name="socket.performanceConnectionTime" required="false">
         <p>(int)The first value for the performance settings. See
-        <a href="http://docs.oracle.com/javase/6/docs/api/java/net/Socket.html#setPerformancePreferences(int,%20int,%20int)">Socket Performance Options</a>
+        <a href="http://docs.oracle.com/javase/6/docs/api/java/net/Socket.html#setPerformancePreferences(int,%20int,%20int)">Socket Performance Options</a>.
         All three performance attributes must be set else the JVM defaults will
         be used for all three.</p>
       </attribute>
       <attribute name="socket.performanceLatency" required="false">
         <p>(int)The second value for the performance settings. See
-        <a href="http://docs.oracle.com/javase/6/docs/api/java/net/Socket.html#setPerformancePreferences(int,%20int,%20int)">Socket Performance Options</a>
+        <a href="http://docs.oracle.com/javase/6/docs/api/java/net/Socket.html#setPerformancePreferences(int,%20int,%20int)">Socket Performance Options</a>.
         All three performance attributes must be set else the JVM defaults will
         be used for all three.</p>
       </attribute>
       <attribute name="socket.performanceBandwidth" required="false">
         <p>(int)The third value for the performance settings. See
-        <a href="http://docs.oracle.com/javase/6/docs/api/java/net/Socket.html#setPerformancePreferences(int,%20int,%20int)">Socket Performance Options</a>
+        <a href="http://docs.oracle.com/javase/6/docs/api/java/net/Socket.html#setPerformancePreferences(int,%20int,%20int)">Socket Performance Options</a>.
         All three performance attributes must be set else the JVM defaults will
         be used for all three.</p>
       </attribute>
@@ -675,7 +733,11 @@
 
       <attribute name="socket.directBuffer" required="false">
         <p>(bool)Boolean value, whether to use direct ByteBuffers or java mapped
-        ByteBuffers. Default is <code>false</code>.<br/>
+        ByteBuffers. If <code>true</code> then
+        <code>java.nio.ByteBuffer.allocateDirect()</code> is used to allocate
+        the buffers, if <code>false</code> then
+        <code>java.nio.ByteBuffer.allocate()</code> is used. The default value
+        is <code>false</code>.<br/>
         When you are using direct buffers, make sure you allocate the
         appropriate amount of memory for the direct memory space. On Sun's JDK
         that would be something like <code>-XX:MaxDirectMemorySize=256m</code>.
@@ -941,16 +1003,27 @@
       </p>
     </attribute>
 
+    <attribute name="useServerCipherSuitesOrder" required="false">
+      <p>
+        Set to <code>true</code> to enforce the server's cipher order
+        (from the <code>ciphers</code> setting). Set to <code>false</code>
+        to choose the first acceptable cipher suite presented by the client.
+        <b>Use of this feature requires Java 8 or later.</b>
+        Default is <i>undefined</i>, leaving the choice up to the JSSE
+        implementation.
+      </p>
+    </attribute>
+
     <attribute name="ciphers" required="false">
       <p>The comma separated list of encryption ciphers to support for HTTPS
       connections. If specified, only the ciphers that are listed and supported
       by the SSL implementation will be used. By default, the default ciphers
-      for the JVM will be used. Note that this usually means that the weak
-      export grade ciphers will be included in the list of available ciphers.
-      The ciphers are specified using the JSSE cipher naming convention. The
-      special value of <code>ALL</code> will enable all supported ciphers. This
-      will include many that are not secure. <code>ALL</code> is intended for
-      testing purposes only.</p>
+      for the JVM will be used less those considered to be insecure. Note that
+      with older JVMs this will result in a very limited set of ciphers being
+      available by default. The ciphers are specified using the JSSE cipher
+      naming convention. The special value of <code>ALL</code> will enable all
+      supported ciphers. This will include many that are not secure.
+      <code>ALL</code> is intended for testing purposes only.</p>
     </attribute>
 
     <attribute name="clientAuth" required="false">
@@ -977,12 +1050,18 @@
     <attribute name="crlFile" required="false">
       <p>The certificate revocation list to be used to verify client
       certificates. If not defined, client certificates will not be checked
-      against a certificate revocation list.</p>
+      against a certificate revocation list. The file may be specified using a
+      URL, an absolute path or a relative (to CATALINA_BASE) path.</p>
     </attribute>
 
     <attribute name="keyAlias" required="false">
-      <p>The alias used to for the server certificate in the keystore. If not
-      specified the first key read in the keystore will be used.</p>
+      <p>The alias used for the server key and certificate in the keystore. If
+      not specified, the first key read from the keystore will be used. The
+      order in which keys are read from the keystore is implementation
+      dependent. It may not be the case that keys are read from the keystore in
+      the same order as they were added. If more than one key is present in the
+      keystore it is strongly recommended that a keyAlias is configured to
+      ensure that the correct key is used.</p>
     </attribute>
 
     <attribute name="keyPass" required="false">
@@ -997,7 +1076,8 @@
       the file "<code>.keystore</code>" in the operating system home
       directory of the user that is running Tomcat. If your
       <code>keystoreType</code> doesn't need a file use <code>""</code>
-      (empty string) for this parameter.</p>
+      (empty string) for this parameter. The file may be specified using a
+      URL, an absolute path or a relative (to CATALINA_BASE) path.</p>
     </attribute>
 
     <attribute name="keystorePass" required="false">
@@ -1034,8 +1114,9 @@
     <attribute name="sslEnabledProtocols" required="false">
       <p>The comma separated list of SSL protocols to support for HTTPS
       connections. If specified, only the protocols that are listed and
-      supported by the SSL implementation will be enabled. If not specified,
-      the JVM default is used. The permitted values may be obtained from the
+      supported by the SSL implementation will be enabled.  If not specified,
+      the JVM default (excluding SSLv2 and SSLv3 if the JVM enables either or
+      both of them by default) is used. The permitted values may be obtained from the
       JVM documentation for the allowed values for 
       <code>SSLSocket.setEnabledProtocols()</code> e.g.
       <a href="http://docs.oracle.com/javase/6/docs/technotes/guides/security/StandardNames.html#jssenames">
@@ -1053,7 +1134,7 @@
     </attribute>
 
     <attribute name="sslProtocol" required="false">
-      <p>The the SSL protocol(s) to use (a single value may enable multiple
+      <p>The SSL protocol(s) to use (a single value may enable multiple
       protocols - see the JVM documentation for details). If not specified, the
       default is <code>TLS</code>. The permitted values may be obtained from the
       JVM documentation for the allowed values for algorithm when creating an
@@ -1090,7 +1171,8 @@
       <p>The trust store file to use to validate client certificates. The
       default is the value of the <code>javax.net.ssl.trustStore</code> system
       property. If neither this attribute nor the default system property is
-      set, no trust store will be configured.</p>
+      set, no trust store will be configured. The file may be specified using a
+      URL, an absolute path or a relative (to CATALINA_BASE) path.</p>
     </attribute>
 
     <attribute name="truststorePass" required="false">
@@ -1197,6 +1279,12 @@
     <attribute name="SSLCertificateFile" required="true">
       <p>Name of the file that contains the server certificate. The format is
       PEM-encoded.</p>
+      <p>In addition to the certificate, the file can also contain as optional
+      elements DH parameters and/or an EC curve name for ephemeral keys, as
+      generated by <code>openssl dhparam</code> and <code>openssl ecparam</code>,
+      respectively. The output of the respective OpenSSL command can simply
+      be concatenated to the certificate file. This feature needs APR/native
+      version 1.1.34 or later.</p>
     </attribute>
 
     <attribute name="SSLCertificateKeyFile" required="false">
@@ -1208,9 +1296,8 @@
 
     <attribute name="SSLCipherSuite" required="false">
       <p>Ciphers which may be used for communicating with clients. The default
-      is "ALL", with other acceptable values being a list of ciphers, with ":"
-      used as the delimiter (see OpenSSL documentation for the list of ciphers
-      supported).</p>
+      is "HIGH:!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!kRSA". See the OpenSSL
+      documentation for details of the cipher configuration options.</p>
     </attribute>
 
     <attribute name="SSLDisableCompression" required="false">
@@ -1231,12 +1318,25 @@
     </attribute>
 
     <attribute name="SSLProtocol" required="false">
-      <p>Protocol which may be used for communicating with clients. The default
-      value is <code>all</code>, which is equivalent to <code>SSLv3+TLSv1</code>
-      with other acceptable values being <code>SSLv2</code>,
-      <code>SSLv3</code>, <code>TLSv1</code> and any combination of the three
-      protocols concatenated with a plus sign. Note that the protocol
-      <code>SSLv2</code> is inherently unsafe.</p>
+      <p>The names of the protocols to support when communicating with clients.
+      This should be a list of any combination of the following:
+      </p>
+      <ul><li>SSLv2</li><li>SSLv3</li><li>TLSv1</li>
+          <li>TLSv1.1</li><li>TLSv1.2</li><li>all</li></ul>
+      <p>Each token in the list can be prefixed with a plus sign ("+")
+      or a minus sign ("-"). A plus sign adds the protocol, a minus sign
+      removes it form the current list. The list is built starting from
+      an empty list.</p>
+      <p>The token <code>all</code> is an alias for
+      <code>TLSv1+TLSv1.1+TLSv1.2</code>.</p>
+      <p>If more than one protocol is specified for an OpenSSL
+      based secure connector it will always support <code>SSLv2Hello</code>. If a
+      single protocol is specified it will not support
+      <code>SSLv2Hello</code>.</p>
+      <p>Note that <code>SSLv2</code> and <code>SSLv3</code> are inherently
+      unsafe.</p>
+      <p>If not specified, the default value of <code>all</code> will be
+      used.</p>
     </attribute>
 
     <attribute name="SSLVerifyClient" required="false">
@@ -1257,7 +1357,7 @@
   </subsection>
   <subsection name="Connector Comparison">
 
-    <p>Below is a small chart that shows how the connectors differentiate.</p>
+    <p>Below is a small chart that shows how the connectors differ.</p>
     <source>
                        Java Blocking Connector   Java Non Blocking Connector   APR/native Connector
                                  BIO                         NIO                       APR
@@ -1265,9 +1365,9 @@
     Tomcat Version           3.x onwards                 6.x onwards              5.5.x onwards
     Support Polling              NO                          YES                       YES
     Polling Size                 N/A                   maxConnections             maxConnections
-    Read HTTP Request         Blocking                  Non Blocking                 Blocking
-    Read HTTP Body            Blocking                  Sim Blocking                 Blocking
-    Write HTTP Response       Blocking                  Sim Blocking                 Blocking
+    Read Request Headers      Blocking                  Non Blocking                 Blocking
+    Read Request Body         Blocking                    Blocking                   Blocking
+    Write Response            Blocking                    Blocking                   Blocking
     Wait for next Request     Blocking                  Non Blocking               Non Blocking
     SSL Support               Java SSL                    Java SSL                   OpenSSL
     SSL Handshake             Blocking                  Non blocking                 Blocking

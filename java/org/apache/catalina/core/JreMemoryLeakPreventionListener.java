@@ -20,24 +20,25 @@ package org.apache.catalina.core;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.net.MalformedURLException;
-import java.net.URL;
-import java.net.URLConnection;
 import java.sql.DriverManager;
 import java.util.StringTokenizer;
 
 import javax.imageio.ImageIO;
+import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 
-import org.apache.catalina.Globals;
 import org.apache.catalina.Lifecycle;
 import org.apache.catalina.LifecycleEvent;
 import org.apache.catalina.LifecycleListener;
 import org.apache.juli.logging.Log;
 import org.apache.juli.logging.LogFactory;
 import org.apache.tomcat.util.ExceptionUtils;
+import org.apache.tomcat.util.compat.JreCompat;
+import org.apache.tomcat.util.compat.JreVendor;
 import org.apache.tomcat.util.res.StringManager;
+import org.w3c.dom.Document;
+import org.w3c.dom.ls.DOMImplementationLS;
 
 /**
  * Provide a workaround for known places where the Java Runtime environment can
@@ -51,7 +52,7 @@ import org.apache.tomcat.util.res.StringManager;
  * <p>
  * Locked files usually occur when a resource inside a JAR is accessed without
  * first disabling Jar URL connection caching. The workaround is to disable this
- * caching by default. 
+ * caching by default.
  */
 public class JreMemoryLeakPreventionListener implements LifecycleListener {
 
@@ -61,6 +62,7 @@ public class JreMemoryLeakPreventionListener implements LifecycleListener {
         StringManager.getManager(Constants.Package);
 
     private static final boolean IS_JAVA_7_OR_LATER;
+    private static final boolean IS_JAVA_8_OR_LATER;
 
     static {
         boolean isJava7OrLater;
@@ -71,7 +73,20 @@ public class JreMemoryLeakPreventionListener implements LifecycleListener {
             isJava7OrLater = false;
         }
         IS_JAVA_7_OR_LATER = isJava7OrLater;
+
+        boolean isJava8OrLater;
+        try {
+            Class.forName("java.util.Optional");
+            isJava8OrLater = true;
+        } catch (ClassNotFoundException e) {
+            isJava8OrLater = false;
+        }
+        IS_JAVA_8_OR_LATER = isJava8OrLater;
+
     }
+
+    private static final String FORK_JOIN_POOL_THREAD_FACTORY_PROPERTY =
+            "java.util.concurrent.ForkJoinPool.common.threadFactory";
 
     /**
      * Protect against the memory leak caused when the first call to
@@ -140,7 +155,7 @@ public class JreMemoryLeakPreventionListener implements LifecycleListener {
      public void setSecurityPolicyProtection(boolean securityPolicyProtection) {
          this.securityPolicyProtection = securityPolicyProtection;
      }
-     
+
     /**
      * Protects against the memory leak caused when the first call to
      * <code>javax.security.auth.login.Configuration</code> is triggered by a
@@ -184,25 +199,25 @@ public class JreMemoryLeakPreventionListener implements LifecycleListener {
     }
 
     /**
-     * XML parsing can pin a web application class loader in memory. This is
-     * particularly nasty as profilers (at least YourKit and Eclipse MAT) don't
-     * identify any GC roots related to this.
-     * <a href="http://bugs.sun.com/bugdatabase/view_bug.do?bug_id=6916498">
-     * http://bugs.sun.com/bugdatabase/view_bug.do?bug_id=6916498</a>
+     * XML parsing can pin a web application class loader in memory. There are
+     * multiple root causes for this. Some of these are particularly nasty as
+     * profilers may not identify any GC roots related to the leak. For example,
+     * with YourKit you need to ensure that HPROF format memory snapshots are
+     * used to be able to trace some of the leaks.
      */
     private boolean xmlParsingProtection = true;
     public boolean isXmlParsingProtection() { return xmlParsingProtection; }
     public void setXmlParsingProtection(boolean xmlParsingProtection) {
         this.xmlParsingProtection = xmlParsingProtection;
     }
-    
+
     /**
      * <code>com.sun.jndi.ldap.LdapPoolManager</code> class spawns a thread when
      * it is initialized if the system property
      * <code>com.sun.jndi.ldap.connect.pool.timeout</code> is greater than 0.
      * That thread inherits the context class loader of the current thread, so
      * that there may be a web application class loader leak if the web app
-     * is the first to use <code>LdapPoolManager</code>. 
+     * is the first to use <code>LdapPoolManager</code>.
      */
     private boolean ldapPoolProtection = true;
     public boolean isLdapPoolProtection() { return ldapPoolProtection; }
@@ -214,7 +229,7 @@ public class JreMemoryLeakPreventionListener implements LifecycleListener {
      * The first access to {@link DriverManager} will trigger the loading of
      * all {@link java.sql.Driver}s in the the current class loader. The web
      * application level memory leak protection can take care of this in most
-     * cases but triggering the loading here has fewer side-effects. 
+     * cases but triggering the loading here has fewer side-effects.
      */
     private boolean driverManagerProtection = true;
     public boolean isDriverManagerProtection() {
@@ -223,10 +238,23 @@ public class JreMemoryLeakPreventionListener implements LifecycleListener {
     public void setDriverManagerProtection(boolean driverManagerProtection) {
         this.driverManagerProtection = driverManagerProtection;
     }
-    
+
+    /**
+     * {@link java.util.concurrent.ForkJoinPool#commonPool()} creates a thread
+     * pool that, by default, creates threads that retain references to the
+     * thread context class loader.
+     */
+    private boolean forkJoinCommonPoolProtection = true;
+    public boolean getForkJoinCommonPoolProtection() {
+        return forkJoinCommonPoolProtection;
+    }
+    public void setForkJoinCommonPoolProtection(boolean forkJoinCommonPoolProtection) {
+        this.forkJoinCommonPoolProtection = forkJoinCommonPoolProtection;
+    }
+
     /**
      * List of comma-separated fully qualified class names to load and initialize during
-     * the startup of this Listener. This allows to pre-load classes that are known to 
+     * the startup of this Listener. This allows to pre-load classes that are known to
      * provoke classloader leaks if they are loaded during a request processing.
      */
     private String classesToInitialize = null;
@@ -236,7 +264,7 @@ public class JreMemoryLeakPreventionListener implements LifecycleListener {
     public void setClassesToInitialize(String classesToInitialize) {
         this.classesToInitialize = classesToInitialize;
     }
-    
+
     @Override
     public void lifecycleEvent(LifecycleEvent event) {
         // Initialise these classes when Tomcat starts
@@ -262,7 +290,7 @@ public class JreMemoryLeakPreventionListener implements LifecycleListener {
                 /*
                  * Several components end up calling:
                  * sun.awt.AppContext.getAppContext()
-                 * 
+                 *
                  * Those libraries / components known to trigger memory leaks
                  * due to eventual calls to getAppContext() are:
                  * - Google Web Toolkit via its use of javax.imageio
@@ -277,22 +305,22 @@ public class JreMemoryLeakPreventionListener implements LifecycleListener {
                  * started named AWT-AppKit that requires a graphic environment
                  * to be available.
                  */
-                
+
                 // Trigger a call to sun.awt.AppContext.getAppContext(). This
                 // will pin the system class loader in memory but that shouldn't
                 // be an issue.
-                if (appContextProtection) {
+                if (appContextProtection && !JreCompat.isJre8Available()) {
                     ImageIO.getCacheDirectory();
                 }
 
                 // Trigger the creation of the AWT (AWT-Windows, AWT-XAWT,
                 // etc.) thread
-                if (awtThreadProtection) {
+                if (awtThreadProtection && !JreCompat.isJre9Available()) {
                   java.awt.Toolkit.getDefaultToolkit();
                 }
 
                 // Trigger the creation of the "Java2D Disposer" thread.
-                // See https://issues.apache.org/bugzilla/show_bug.cgi?id=51687
+                // See https://bz.apache.org/bugzilla/show_bug.cgi?id=51687
                 if(java2dDisposerProtection) {
                     try {
                         Class.forName("sun.java2d.Disposer");
@@ -307,7 +335,7 @@ public class JreMemoryLeakPreventionListener implements LifecycleListener {
                  * Several components end up calling
                  * sun.misc.GC.requestLatency(long) which creates a daemon
                  * thread without setting the TCCL.
-                 * 
+                 *
                  * Those libraries / components known to trigger memory leaks
                  * due to eventual calls to requestLatency(long) are:
                  * - javax.management.remote.rmi.RMIConnectorServer.start()
@@ -316,7 +344,7 @@ public class JreMemoryLeakPreventionListener implements LifecycleListener {
                  *       to terminate
                  *
                  */
-                if (gcDaemonProtection) {
+                if (gcDaemonProtection && !JreCompat.isJre9Available()) {
                     try {
                         Class<?> clazz = Class.forName("sun.misc.GC");
                         Method method = clazz.getDeclaredMethod(
@@ -324,7 +352,7 @@ public class JreMemoryLeakPreventionListener implements LifecycleListener {
                                 new Class[] {long.class});
                         method.invoke(null, Long.valueOf(Long.MAX_VALUE - 1));
                     } catch (ClassNotFoundException e) {
-                        if (Globals.IS_ORACLE_JVM) {
+                        if (JreVendor.IS_ORACLE_JVM) {
                             log.error(sm.getString(
                                     "jreLeakListener.gcDaemonFail"), e);
                         } else {
@@ -349,12 +377,12 @@ public class JreMemoryLeakPreventionListener implements LifecycleListener {
                                 e);
                     }
                 }
-    
+
                 /*
-                 * Calling getPolicy retains a static reference to the context 
+                 * Calling getPolicy retains a static reference to the context
                  * class loader.
                  */
-                if (securityPolicyProtection) {
+                if (securityPolicyProtection && !JreCompat.isJre8Available()) {
                     try {
                         // Policy.getPolicy();
                         Class<?> policyClass = Class
@@ -381,13 +409,13 @@ public class JreMemoryLeakPreventionListener implements LifecycleListener {
                                 e);
                     }
                 }
-    
-                
+
+
                 /*
-                 * Initializing javax.security.auth.login.Configuration retains a static reference to the context 
+                 * Initializing javax.security.auth.login.Configuration retains a static reference to the context
                  * class loader.
                  */
-                if (securityLoginConfigurationProtection) {
+                if (securityLoginConfigurationProtection && !JreCompat.isJre8Available()) {
                     try {
                         Class.forName("javax.security.auth.login.Configuration", true, ClassLoader.getSystemClassLoader());
                     } catch(ClassNotFoundException e) {
@@ -400,63 +428,78 @@ public class JreMemoryLeakPreventionListener implements LifecycleListener {
                  * initializes the Java Cryptography Architecture. Under certain
                  * conditions this starts a Token poller thread with TCCL equal
                  * to the web application class loader.
-                 * 
+                 *
                  * Instead we initialize JCA right now.
+                 *
+                 * Fixed in Java 9 onwards (from early access build 133)
                  */
-                if (tokenPollerProtection) {
+                if (tokenPollerProtection && !JreCompat.isJre9Available()) {
                     java.security.Security.getProviders();
                 }
-                
+
                 /*
                  * Several components end up opening JarURLConnections without
                  * first disabling caching. This effectively locks the file.
                  * Whilst more noticeable and harder to ignore on Windows, it
                  * affects all operating systems.
-                 * 
+                 *
                  * Those libraries/components known to trigger this issue
                  * include:
                  * - log4j versions 1.2.15 and earlier
                  * - javax.xml.bind.JAXBContext.newInstance()
+                 *
+                 * Java 9 onwards disables caching for JAR URLConnections
+                 * Java 8 and earlier disables caching for all URLConnections
                  */
-                
+
                 // Set the default URL caching policy to not to cache
                 if (urlCacheProtection) {
                     try {
-                        // Doesn't matter that this JAR doesn't exist - just as
-                        // long as the URL is well-formed
-                        URL url = new URL("jar:file://dummy.jar!/");
-                        URLConnection uConn = url.openConnection();
-                        uConn.setDefaultUseCaches(false);
-                    } catch (MalformedURLException e) {
-                        log.error(sm.getString(
-                                "jreLeakListener.jarUrlConnCacheFail"), e);
+                        JreCompat.getInstance().disableCachingForJarUrlConnections();
                     } catch (IOException e) {
-                        log.error(sm.getString(
-                                "jreLeakListener.jarUrlConnCacheFail"), e);
+                        log.error(sm.getString("jreLeakListener.jarUrlConnCacheFail"), e);
                     }
                 }
-                
+
                 /*
-                 * Haven't got to the root of what is going on with this leak
-                 * but if a web app is the first to make the calls below the web
-                 * application class loader will be pinned in memory.
+                 * Fixed in Java 9 onwards (from early access build 133)
                  */
-                if (xmlParsingProtection) {
-                    DocumentBuilderFactory factory =
-                        DocumentBuilderFactory.newInstance();
+                if (xmlParsingProtection && !JreCompat.isJre9Available()) {
+                    // There are three known issues with XML parsing
+                    // 1. DocumentBuilderFactory.newInstance().newDocumentBuilder();
+                    // http://bugs.sun.com/bugdatabase/view_bug.do?bug_id=6916498
+                    // This issue is fixed in Java 7 onwards
+                    DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
                     try {
-                        factory.newDocumentBuilder();
+                        DocumentBuilder documentBuilder = factory.newDocumentBuilder();
+
+                        // The 2nd and 3rd links both relate to cached Exception
+                        // instances that retain a link to the TCCL via the
+                        // backtrace field. Note that YourKit only shows this
+                        // field when using the HPROF format memory snapshots.
+                        // https://bz.apache.org/bugzilla/show_bug.cgi?id=58486
+                        // These issues are currently present in all current
+                        // versions of Java
+
+                        // 2. com.sun.org.apache.xml.internal.serialize.DOMSerializerImpl
+                        Document document = documentBuilder.newDocument();
+                        document.createElement("dummy");
+                        DOMImplementationLS implementation =
+                                (DOMImplementationLS)document.getImplementation();
+                        implementation.createLSSerializer().writeToString(document);
+                        // 3. com.sun.org.apache.xerces.internal.dom.DOMNormalizer
+                        document.normalize();
                     } catch (ParserConfigurationException e) {
                         log.error(sm.getString("jreLeakListener.xmlParseFail"),
                                 e);
                     }
                 }
-                
-                if (ldapPoolProtection) {
+
+                if (ldapPoolProtection && !JreCompat.isJre9Available()) {
                     try {
                         Class.forName("com.sun.jndi.ldap.LdapPoolManager");
                     } catch (ClassNotFoundException e) {
-                        if (Globals.IS_ORACLE_JVM) {
+                        if (JreVendor.IS_ORACLE_JVM) {
                             log.error(sm.getString(
                                     "jreLeakListener.ldapPoolManagerFail"), e);
                         } else {
@@ -465,7 +508,18 @@ public class JreMemoryLeakPreventionListener implements LifecycleListener {
                         }
                     }
                 }
-                
+
+                /*
+                 * Present in Java 8 onwards
+                 */
+                if (forkJoinCommonPoolProtection && IS_JAVA_8_OR_LATER) {
+                    // Don't override any explicitly set property
+                    if (System.getProperty(FORK_JOIN_POOL_THREAD_FACTORY_PROPERTY) == null) {
+                        System.setProperty(FORK_JOIN_POOL_THREAD_FACTORY_PROPERTY,
+                                "org.apache.catalina.startup.SafeForkJoinWorkerThreadFactory");
+                    }
+                }
+
                 if (classesToInitialize != null) {
                     StringTokenizer strTok =
                         new StringTokenizer(classesToInitialize, ", \r\n\t");

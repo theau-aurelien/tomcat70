@@ -27,7 +27,6 @@ import java.io.Writer;
 import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Enumeration;
 import java.util.Hashtable;
@@ -40,6 +39,7 @@ import javax.naming.NameClassPair;
 import javax.naming.NamingEnumeration;
 import javax.naming.NamingException;
 import javax.naming.directory.DirContext;
+import javax.servlet.DispatcherType;
 import javax.servlet.RequestDispatcher;
 import javax.servlet.ServletContext;
 import javax.servlet.ServletException;
@@ -50,14 +50,17 @@ import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 
+import org.apache.catalina.connector.RequestFacade;
+import org.apache.catalina.util.ConcurrentDateFormat;
 import org.apache.catalina.util.DOMWriter;
-import org.apache.catalina.util.MD5Encoder;
+import org.apache.catalina.util.URLEncoder;
 import org.apache.catalina.util.XMLWriter;
 import org.apache.naming.resources.CacheEntry;
 import org.apache.naming.resources.Resource;
 import org.apache.naming.resources.ResourceAttributes;
 import org.apache.tomcat.util.http.FastHttpDateFormat;
 import org.apache.tomcat.util.http.RequestUtil;
+import org.apache.tomcat.util.security.MD5Encoder;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
@@ -129,13 +132,21 @@ import org.xml.sax.SAXException;
  *
  * @author Remy Maucherat
  */
-public class WebdavServlet
-    extends DefaultServlet {
+public class WebdavServlet extends DefaultServlet {
 
     private static final long serialVersionUID = 1L;
 
 
     // -------------------------------------------------------------- Constants
+
+    private static final URLEncoder URL_ENCODER_XML;
+    static {
+        URL_ENCODER_XML = (URLEncoder) URLEncoder.DEFAULT.clone();
+        // Remove '&' from the safe character set since while it it permitted
+        // in a URI path, it is not permitted in XML and encoding it is a simple
+        // way to address this.
+        URL_ENCODER_XML.removeSafeCharacter('&');
+    }
 
     private static final String METHOD_PROPFIND = "PROPFIND";
     private static final String METHOD_PROPPATCH = "PROPPATCH";
@@ -197,8 +208,9 @@ public class WebdavServlet
     /**
      * Simple date format for the creation date ISO representation (partial).
      */
-    protected static final SimpleDateFormat creationDateFormat =
-        new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US);
+    protected static final ConcurrentDateFormat creationDateFormat =
+        new ConcurrentDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US,
+                TimeZone.getTimeZone("GMT"));
 
 
      /**
@@ -216,14 +228,7 @@ public class WebdavServlet
     protected static final MD5Encoder md5Encoder = new MD5Encoder();
 
 
-
-    static {
-        creationDateFormat.setTimeZone(TimeZone.getTimeZone("GMT"));
-    }
-
-
     // ----------------------------------------------------- Instance Variables
-
 
     /**
      * Repository of the locks put on single resources.
@@ -343,6 +348,14 @@ public class WebdavServlet
 
         final String path = getRelativePath(req);
 
+        // Error page check needs to come before special path check since
+        // custom error pages are often located below WEB-INF so they are
+        // not directly accessible.
+        if (req.getDispatcherType() == DispatcherType.ERROR) {
+            doGet(req, resp);
+            return;
+        }
+
         // Block access to special subdirectories.
         // DefaultServlet assumes it services resources from the root of the web app
         // and doesn't add any special path protection
@@ -421,6 +434,18 @@ public class WebdavServlet
 
 
     /**
+     * URL rewriter.
+     *
+     * @param path Path which has to be rewritten
+     * @return the rewritten path
+     */
+    @Override
+    protected String rewriteUrl(String path) {
+        return URL_ENCODER_XML.encode(path, "UTF-8");
+    }
+
+
+    /**
      * Override the DefaultServlet implementation and only use the PathInfo. If
      * the ServletPath is non-null, it will be because the WebDAV servlet has
      * been mapped to a url other than /* to configure editing at different url
@@ -430,23 +455,29 @@ public class WebdavServlet
      */
     @Override
     protected String getRelativePath(HttpServletRequest request) {
-        // Are we being processed by a RequestDispatcher.include()?
-        if (request.getAttribute(
-                RequestDispatcher.INCLUDE_REQUEST_URI) != null) {
-            String result = (String) request.getAttribute(
-                    RequestDispatcher.INCLUDE_PATH_INFO);
-            if ((result == null) || (result.equals("")))
-                result = "/";
-            return (result);
+        return getRelativePath(request, false);
+    }
+
+    @Override
+    protected String getRelativePath(HttpServletRequest request, boolean allowEmptyPath) {
+        String pathInfo;
+
+        if (request.getAttribute(RequestDispatcher.INCLUDE_REQUEST_URI) != null) {
+            // For includes, get the info from the attributes
+            pathInfo = (String) request.getAttribute(RequestDispatcher.INCLUDE_PATH_INFO);
+        } else {
+            pathInfo = request.getPathInfo();
         }
 
-        // No, extract the desired path directly from the request
-        String result = request.getPathInfo();
-        if ((result == null) || (result.equals(""))) {
-            result = "/";
+        StringBuilder result = new StringBuilder();
+        if (pathInfo != null) {
+            result.append(pathInfo);
         }
-        return (result);
+        if (result.length() == 0) {
+            result.append('/');
+        }
 
+        return result.toString();
     }
 
 
@@ -963,21 +994,19 @@ public class WebdavServlet
         if (lockDurationStr == null) {
             lockDuration = DEFAULT_TIMEOUT;
         } else {
-            int commaPos = lockDurationStr.indexOf(",");
+            int commaPos = lockDurationStr.indexOf(',');
             // If multiple timeouts, just use the first
             if (commaPos != -1) {
                 lockDurationStr = lockDurationStr.substring(0,commaPos);
             }
             if (lockDurationStr.startsWith("Second-")) {
-                lockDuration =
-                    (new Integer(lockDurationStr.substring(7))).intValue();
+                lockDuration = Integer.parseInt(lockDurationStr.substring(7));
             } else {
                 if (lockDurationStr.equalsIgnoreCase("infinity")) {
                     lockDuration = MAX_TIMEOUT;
                 } else {
                     try {
-                        lockDuration =
-                            (new Integer(lockDurationStr)).intValue();
+                        lockDuration = Integer.parseInt(lockDurationStr);
                     } catch (NumberFormatException e) {
                         lockDuration = MAX_TIMEOUT;
                     }
@@ -1596,7 +1625,7 @@ public class WebdavServlet
             // if the Destination URL contains the protocol, we can safely
             // trim everything upto the first "/" character after "://"
             int firstSeparator =
-                destinationPath.indexOf("/", protocolIndex + 4);
+                destinationPath.indexOf('/', protocolIndex + 4);
             if (firstSeparator < 0) {
                 destinationPath = "/";
             } else {
@@ -1608,13 +1637,13 @@ public class WebdavServlet
                 destinationPath = destinationPath.substring(hostName.length());
             }
 
-            int portIndex = destinationPath.indexOf(":");
+            int portIndex = destinationPath.indexOf(':');
             if (portIndex >= 0) {
                 destinationPath = destinationPath.substring(portIndex);
             }
 
             if (destinationPath.startsWith(":")) {
-                int firstSeparator = destinationPath.indexOf("/");
+                int firstSeparator = destinationPath.indexOf('/');
                 if (firstSeparator < 0) {
                     destinationPath = "/";
                 } else {
@@ -1762,7 +1791,7 @@ public class WebdavServlet
                 dirContext.createSubcontext(dest);
             } catch (NamingException e) {
                 errorList.put
-                    (dest, new Integer(WebdavStatus.SC_CONFLICT));
+                    (dest, Integer.valueOf(WebdavStatus.SC_CONFLICT));
                 return false;
             }
 
@@ -1783,7 +1812,7 @@ public class WebdavServlet
                 }
             } catch (NamingException e) {
                 errorList.put
-                    (dest, new Integer(WebdavStatus.SC_INTERNAL_SERVER_ERROR));
+                    (dest, Integer.valueOf(WebdavStatus.SC_INTERNAL_SERVER_ERROR));
                 return false;
             }
 
@@ -1797,17 +1826,17 @@ public class WebdavServlet
                         // We know the source exists so it must be the
                         // destination dir that can't be found
                         errorList.put(source,
-                                new Integer(WebdavStatus.SC_CONFLICT));
+                                Integer.valueOf(WebdavStatus.SC_CONFLICT));
                     } else {
                         errorList.put(source,
-                                new Integer(WebdavStatus.SC_INTERNAL_SERVER_ERROR));
+                                Integer.valueOf(WebdavStatus.SC_INTERNAL_SERVER_ERROR));
                     }
                     return false;
                 }
             } else {
                 errorList.put
                     (source,
-                     new Integer(WebdavStatus.SC_INTERNAL_SERVER_ERROR));
+                     Integer.valueOf(WebdavStatus.SC_INTERNAL_SERVER_ERROR));
                 return false;
             }
 
@@ -1893,7 +1922,7 @@ public class WebdavServlet
             try {
                 resources.unbind(path);
             } catch (NamingException e) {
-                errorList.put(path, new Integer
+                errorList.put(path, Integer.valueOf
                     (WebdavStatus.SC_INTERNAL_SERVER_ERROR));
             }
 
@@ -1930,7 +1959,7 @@ public class WebdavServlet
 
         // Prevent deletion of special subdirectories
         if (isSpecialPath(path)) {
-            errorList.put(path, new Integer(WebdavStatus.SC_FORBIDDEN));
+            errorList.put(path, Integer.valueOf(WebdavStatus.SC_FORBIDDEN));
             return;
         }
 
@@ -1946,7 +1975,7 @@ public class WebdavServlet
         try {
             enumeration = dirContext.list(path);
         } catch (NamingException e) {
-            errorList.put(path, new Integer
+            errorList.put(path, Integer.valueOf
                 (WebdavStatus.SC_INTERNAL_SERVER_ERROR));
             return;
         }
@@ -1960,7 +1989,7 @@ public class WebdavServlet
 
             if (isLocked(childName, ifHeader + lockTokenHeader)) {
 
-                errorList.put(childName, new Integer(WebdavStatus.SC_LOCKED));
+                errorList.put(childName, Integer.valueOf(WebdavStatus.SC_LOCKED));
 
             } else {
 
@@ -1977,13 +2006,13 @@ public class WebdavServlet
                             // If it's not a collection, then it's an unknown
                             // error
                             errorList.put
-                                (childName, new Integer
+                                (childName, Integer.valueOf
                                     (WebdavStatus.SC_INTERNAL_SERVER_ERROR));
                         }
                     }
                 } catch (NamingException e) {
                     errorList.put
-                        (childName, new Integer
+                        (childName, Integer.valueOf
                             (WebdavStatus.SC_INTERNAL_SERVER_ERROR));
                 }
             }
@@ -2615,27 +2644,7 @@ public class WebdavServlet
      * Get creation date in ISO format.
      */
     private String getISOCreationDate(long creationDate) {
-        StringBuilder creationDateValue = new StringBuilder
-            (creationDateFormat.format
-             (new Date(creationDate)));
-        /*
-        int offset = Calendar.getInstance().getTimeZone().getRawOffset()
-            / 3600000; // FIXME ?
-        if (offset < 0) {
-            creationDateValue.append("-");
-            offset = -offset;
-        } else if (offset > 0) {
-            creationDateValue.append("+");
-        }
-        if (offset != 0) {
-            if (offset < 10)
-                creationDateValue.append("0");
-            creationDateValue.append(offset + ":00");
-        } else {
-            creationDateValue.append("Z");
-        }
-        */
-        return creationDateValue.toString();
+        return creationDateFormat.format(new Date(creationDate));
     }
 
     /**
@@ -2661,7 +2670,12 @@ public class WebdavServlet
             return methodsAllowed;
         }
 
-        methodsAllowed.append("OPTIONS, GET, HEAD, POST, DELETE, TRACE");
+        methodsAllowed.append("OPTIONS, GET, HEAD, POST, DELETE");
+        // Trace - assume disabled unless we can prove otherwise
+        if (req instanceof RequestFacade &&
+                ((RequestFacade) req).getAllowTrace()) {
+            methodsAllowed.append(", TRACE");
+        }
         methodsAllowed.append(", PROPPATCH, COPY, MOVE, LOCK, UNLOCK");
 
         if (listings) {

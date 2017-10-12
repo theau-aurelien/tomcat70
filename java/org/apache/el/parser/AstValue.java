@@ -41,29 +41,30 @@ import org.apache.el.util.ReflectionUtil;
  */
 public final class AstValue extends SimpleNode {
 
-    private static final boolean IS_SECURITY_ENABLED =
-        (System.getSecurityManager() != null);
+    private static final Object[] EMPTY_ARRAY = new Object[0];
+    private static final boolean IS_SECURITY_ENABLED = (System.getSecurityManager() != null);
 
     protected static final boolean COERCE_TO_ZERO;
     
     static {
+        String coerceToZeroStr;
         if (IS_SECURITY_ENABLED) {
-            COERCE_TO_ZERO = AccessController.doPrivileged(
-                    new PrivilegedAction<Boolean>(){
+            coerceToZeroStr = AccessController.doPrivileged(
+                    new PrivilegedAction<String>(){
                         @Override
-                        public Boolean run() {
-                            return Boolean.valueOf(System.getProperty(
+                        public String run() {
+                            return System.getProperty(
                                     "org.apache.el.parser.COERCE_TO_ZERO",
-                                    "true"));
+                                    "true");
                         }
-
                     }
-            ).booleanValue();
+            );
         } else {
-            COERCE_TO_ZERO = Boolean.valueOf(System.getProperty(
+            coerceToZeroStr = System.getProperty(
                     "org.apache.el.parser.COERCE_TO_ZERO",
-                    "true")).booleanValue();
+                    "true");
         }
+        COERCE_TO_ZERO = Boolean.parseBoolean(coerceToZeroStr);
     }
 
     protected static class Target {
@@ -270,7 +271,7 @@ public final class AstValue extends SimpleNode {
         }
         m = ReflectionUtil.getMethod(t.base, t.property, types, values);
 
-        // Handle varArgs and any co-ercion required
+        // Handle varArgs and any coercion required
         values = convertArgs(values, m);
 
         Object result = null;
@@ -296,10 +297,36 @@ public final class AstValue extends SimpleNode {
     private Object[] convertArgs(Object[] src, Method m) {
         Class<?>[] types = m.getParameterTypes();
         if (types.length == 0) {
-            return new Object[0];
+            // Treated as if parameters have been provided so src is ignored
+            return EMPTY_ARRAY;
         }
         
         int paramCount = types.length;
+
+        if (m.isVarArgs() && paramCount > 1 && (src == null || paramCount > src.length) ||
+                !m.isVarArgs() && (paramCount > 0 && src == null ||
+                        src != null && src.length != paramCount)) {
+            String srcCount = null;
+            if (src != null) {
+                srcCount = Integer.toString(src.length);
+            }
+            String msg;
+            if (m.isVarArgs()) {
+                msg = MessageFactory.get("error.invoke.tooFewParams",
+                        m.getName(), srcCount, Integer.toString(paramCount));
+            } else {
+                msg = MessageFactory.get("error.invoke.wrongParams",
+                        m.getName(), srcCount, Integer.toString(paramCount));
+            }
+            throw new IllegalArgumentException(msg);
+        }
+
+        if (src == null) {
+            // Must be a varargs method with a single parameter.
+            // Use a new array every time since the called code could modify the
+            // contents of the array
+            return new Object[1];
+        }
 
         Object[] dest = new Object[paramCount];
 

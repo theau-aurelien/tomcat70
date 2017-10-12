@@ -69,6 +69,36 @@
     <p>At the network level, consider using a firewall to limit both incoming
     and outgoing connections to only those connections you  expect to be
     present.</p>
+
+    <subsection name="JMX">
+      <p>The security of the JMX connection is dependent on the implementation
+      provided by the JRE and therefore falls outside the control of Tomact.</p>
+
+      <p>Typically, access control is very limited (either read-only to
+      everything or read-write to everything). Tomcat exposes a large amount
+      of internal information and control via JMX to aid debugging, monitoring
+      and management. Give the limited access control available, JMX access
+      should be treated as equivalent to local root/admin access and restricted
+      accordingly.</p>
+
+      <p>The JMX access control provided by most (all?) JRE vendors does not
+      log failed authentication attempts, nor does it provide an account
+      lock-out feature after repeated failed authentications. This makes a
+      brute force attack easy to mount and difficult to detect.</p>
+
+      <p>Given all of the above, care should be taken to ensure that, if used,
+      the JMX interface is appropriately secured. Options you may wish to
+      consider to secure the JMX interface include:</p>
+
+      <ul>
+        <li>configuring a strong password for all JMX users;</li>
+        <li>binding the JMX listener only to an internal network;</li>
+        <li>limiting network access to the JMX port to trusted clients; and</li>
+        <li>providing an application specific health page for use by external
+            monitoring systems.</li>
+      </ul>
+    </subsection>
+
   </section>
 
   <section name="Default web applications">
@@ -129,15 +159,15 @@
      <p>When deploying a web application that provides management functions for
      the Tomcat instance, the following guidelines should be followed:</p>
      <ul>
-       <ol>Ensure that any users permitted to access the management application
-           have strong passwords.</ol>
-       <ol>Do not remove the use of the <a
+       <li>Ensure that any users permitted to access the management application
+           have strong passwords.</li>
+       <li>Do not remove the use of the <a
            href="config/realm.html#LockOut_Realm_-_org.apache.catalina.realm.LockOutRealm">LockOutRealm</a>
-           which prevents brute force attacks against user passwords.</ol>
-       <ol>Uncomment the <a href="config/valve.html#Remote_Address_Filter">RemoteAddrValve</a>
+           which prevents brute force attacks against user passwords.</li>
+       <li>Uncomment the <a href="config/valve.html#Remote_Address_Filter">RemoteAddrValve</a>
            in <code>/META-INF/context.xml</code> which limits access to
            localhost. If remote access is required, limit it to specific IP
-           addresses using this valve.</ol>
+           addresses using this valve.</li>
      </ul>
    </subsection>
   </section>
@@ -264,16 +294,24 @@
       proxy uses AJP then the SSL attributes of the client connection are
       passed via the AJP protocol and separate connectors are not needed.</p>
 
+      <p>The <strong>sslEnabledProtocols</strong> attribute determines which
+      versions of the SSL/TLS protocol are used.  Since the POODLE attack in
+      2014, all SSL protocols are considered unsafe and a secure setting for
+      this attribute in a standalone Tomcat setup might be
+      <code>sslEnabledProtocols="TLSv1,TLSv1.1,TLSv1.2"</code></p>
+
       <p>The <strong>ciphers</strong> attribute controls the ciphers used for
       SSL connections. By default, the default ciphers for the JVM will be used.
       This usually means that the weak export grade ciphers will be included in
       the list of available ciphers. Secure environments will normally want to
       configure a more limited set of ciphers.</p>
 
-      <p>The <strong>tomcatAuthentication</strong> attribute is used with the
-      AJP connectors to determine if Tomcat should authenticate the user or if
-      authentication can be delegated to the reverse proxy that will then pass
-      the authenticated username to Tomcat as part of the AJP protocol.</p>
+      <p>The <strong>tomcatAuthentication</strong> and
+      <strong>tomcatAuthorization</strong> attributes are used with the
+      AJP connectors to determine if Tomcat should handle all authentication and
+      authorisation or if authentication should be delegated to the reverse
+      proxy (the authenticated user name is passed to Tomcat as part of the AJP
+      protocol) with the option for Tomcat to still perform authorization.</p>
 
       <p>The <strong>allowUnsafeLegacyRenegotiation</strong> attribute provides
       a workaround for
@@ -334,6 +372,15 @@
       operating systems (this includes Windows) will disable a number of
       security measures and allow, among other things, direct access to the
       WEB-INF directory.</p>
+
+      <p>The <strong>sessionCookiePathUsesTrailingSlash</strong> can be used to
+      work around a bug in a number of browsers (Internet Explorer, Safari and
+      Edge) to prevent session cookies being exposed across applications when
+      applications share a common path prefix. However, enabling this option
+      can create problems for applications with Servlets mapped to
+      <code>/*</code>. It should also be noted the RFC6265 section 8.5 makes it
+      clear that different paths should not be considered sufficient to isolate
+      cookies from other applications.</p>
     </subsection>
 
     <subsection name="Valves">
@@ -399,6 +446,12 @@ server.info=Apache Tomcat/7.0.x
       <p>The length of the session ID may be changed with the
       <strong>sessionIdLength</strong> attribute.</p>
     </subsection>
+
+    <subsection name="Cluster">
+      <p>The cluster implementation is written on the basis that a secure,
+      trusted network is used for all of the cluster related network traffic. It
+      is not safe to run a cluster on a insecure, untrusted network.</p>
+    </subsection>
   </section>
 
   <section name="System Properties">
@@ -457,10 +510,21 @@ server.info=Apache Tomcat/7.0.x
     script will still report the version number.
     </p>
 
+    <p>The CGI Servlet is disabled by default. If enabled, the debug
+    initialisation parameter should not be set to <code>10</code> or higher on a
+    production system because the debug page is not secure.</p>
+
     <p><a href="config/filter.html">FailedRequestFilter</a>
     can be configured and used to reject requests that had errors during
     request parameter parsing. Without the filter the default behaviour is
     to ignore invalid or excessive parameters.</p>
+
+    <p><a href="config/filter.html">HttpHeaderSecurityFilter</a> can be
+    used to add headers to responses to improve security. If clients access
+    Tomcat directly, then you probably want to enable this filter and all the
+    headers it sets unless your application is already setting them. If Tomcat
+    is accessed via a reverse proxy, then the configuration of this filter needs
+    to be co-ordinated with any headers that the reverse proxy sets.</p>
   </section>
 
   <section name="General">

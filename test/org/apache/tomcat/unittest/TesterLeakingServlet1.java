@@ -27,7 +27,7 @@ public class TesterLeakingServlet1 extends HttpServlet {
 
     private static final long serialVersionUID = 1L;
 
-    private ThreadLocal<TesterCounter> myThreadLocal = new ThreadLocal<TesterCounter>();
+    private static ThreadLocal<TesterCounter> myThreadLocal = new ThreadLocal<TesterCounter>();
 
     @Override
     protected void doGet(HttpServletRequest request,
@@ -44,12 +44,5 @@ public class TesterLeakingServlet1 extends HttpServlet {
         response.getWriter().println(
                 "The current thread served this servlet "
                         + counter.getCount() + " times");
-    }
-
-    @Override
-    public void destroy() {
-        super.destroy();
-        // normally not needed, just to make my point
-        myThreadLocal = null;
     }
 }

@@ -35,12 +35,12 @@ import org.apache.catalina.LifecycleException;
 import org.apache.catalina.Realm;
 import org.apache.catalina.connector.Request;
 import org.apache.catalina.deploy.LoginConfig;
-import org.apache.catalina.util.ConcurrentMessageDigest;
-import org.apache.catalina.util.MD5Encoder;
 import org.apache.juli.logging.Log;
 import org.apache.juli.logging.LogFactory;
 import org.apache.tomcat.util.buf.B2CConverter;
 import org.apache.tomcat.util.http.parser.HttpParser;
+import org.apache.tomcat.util.security.ConcurrentMessageDigest;
+import org.apache.tomcat.util.security.MD5Encoder;
 
 
 
@@ -252,46 +252,20 @@ public class DigestAuthenticator extends AuthenticatorBase {
                                 LoginConfig config)
         throws IOException {
 
-        // Have we already authenticated someone?
-        Principal principal = request.getUserPrincipal();
-        //String ssoId = (String) request.getNote(Constants.REQ_SSOID_NOTE);
-        if (principal != null) {
-            if (log.isDebugEnabled())
-                log.debug("Already authenticated '" + principal.getName() + "'");
-            // Associate the session with any existing SSO session in order
-            // to get coordinated session invalidation at logout
-            String ssoId = (String) request.getNote(Constants.REQ_SSOID_NOTE);
-            if (ssoId != null)
-                associate(ssoId, request.getSessionInternal(true));
-            return (true);
-        }
-
         // NOTE: We don't try to reauthenticate using any existing SSO session,
         // because that will only work if the original authentication was
         // BASIC or FORM, which are less secure than the DIGEST auth-type
         // specified for this webapp
         //
-        // Uncomment below to allow previous FORM or BASIC authentications
+        // Change to true below to allow previous FORM or BASIC authentications
         // to authenticate users for this webapp
         // TODO make this a configurable attribute (in SingleSignOn??)
-        /*
-        // Is there an SSO session against which we can try to reauthenticate?
-        if (ssoId != null) {
-            if (log.isDebugEnabled())
-                log.debug("SSO Id " + ssoId + " set; attempting " +
-                          "reauthentication");
-            // Try to reauthenticate using data cached by SSO.  If this fails,
-            // either the original SSO logon was of DIGEST or SSL (which
-            // we can't reauthenticate ourselves because there is no
-            // cached username and password), or the realm denied
-            // the user's reauthentication for some reason.
-            // In either case we have to prompt the user for a logon
-            if (reauthenticateFromSSO(ssoId, request))
-                return true;
+        if (checkForCachedAuthentication(request, response, false)) {
+            return true;
         }
-        */
 
         // Validate any credentials already included with this request
+        Principal principal = null;
         String authorization = request.getHeader("authorization");
         DigestInfo digestInfo = new DigestInfo(getOpaque(), getNonceValidity(),
                 getKey(), nonces, isValidateUri());
@@ -648,7 +622,7 @@ public class DigestAuthenticator extends AuthenticatorBase {
             }
 
             // Validate nonce
-            int i = nonce.indexOf(":");
+            int i = nonce.indexOf(':');
             if (i < 0 || (i + 1) == nonce.length()) {
                 return false;
             }
@@ -738,10 +712,10 @@ public class DigestAuthenticator extends AuthenticatorBase {
     }
 
     private static class NonceInfo {
-        private volatile long timestamp;
-        private volatile boolean seen[];
-        private volatile int offset;
-        private volatile int count = 0;
+        private final long timestamp;
+        private final boolean seen[];
+        private final int offset;
+        private int count = 0;
 
         public NonceInfo(long currentTime, int seenWindowSize) {
             this.timestamp = currentTime;

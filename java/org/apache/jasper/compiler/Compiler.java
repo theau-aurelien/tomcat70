@@ -20,6 +20,7 @@ package org.apache.jasper.compiler;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.io.UnsupportedEncodingException;
@@ -81,7 +82,7 @@ public abstract class Compiler {
      * <p>
      * Retrieves the parsed nodes of the JSP page, if they are available. May
      * return null. Used in development mode for generating detailed error
-     * messages. http://issues.apache.org/bugzilla/show_bug.cgi?id=37062.
+     * messages. http://bz.apache.org/bugzilla/show_bug.cgi?id=37062.
      * </p>
      */
     public Node.Nodes getPageNodes() {
@@ -378,15 +379,12 @@ public abstract class Compiler {
                 generateClass(smap);
                 // Fix for bugzilla 41606
                 // Set JspServletWrapper.servletClassLastModifiedTime after successful compile
-                String targetFileName = ctxt.getClassFileName();
-                if (targetFileName != null) {
-                    File targetFile = new File(targetFileName);
-                    if (targetFile.exists()) {
-                        targetFile.setLastModified(jspLastModified.longValue());
-                        if (jsw != null) {
-                            jsw.setServletClassLastModifiedTime(
-                                    jspLastModified.longValue());
-                        }
+                File targetFile = new File(ctxt.getClassFileName());
+                if (targetFile.exists()) {
+                    targetFile.setLastModified(jspLastModified.longValue());
+                    if (jsw != null) {
+                        jsw.setServletClassLastModifiedTime(
+                                jspLastModified.longValue());
                     }
                 }
             }
@@ -405,7 +403,7 @@ public abstract class Compiler {
             // Only get rid of the pageNodes if in production.
             // In development mode, they are used for detailed
             // error messages.
-            // http://issues.apache.org/bugzilla/show_bug.cgi?id=37062
+            // http://bz.apache.org/bugzilla/show_bug.cgi?id=37062
             if (!this.options.getDevelopment()) {
                 pageNodes = null;
             }
@@ -493,6 +491,7 @@ public abstract class Compiler {
         Iterator<Entry<String,Long>> it = depends.entrySet().iterator();
         while (it.hasNext()) {
             Entry<String,Long> include = it.next();
+            URLConnection iuc = null;
             try {
                 String key = include.getKey();
                 URL includeUrl;
@@ -505,7 +504,7 @@ public abstract class Compiler {
                     return true;
                 }
 
-                URLConnection iuc = includeUrl.openConnection();
+                iuc = includeUrl.openConnection();
                 long includeLastModified = 0;
                 if (iuc instanceof JarURLConnection) {
                     includeLastModified =
@@ -513,7 +512,6 @@ public abstract class Compiler {
                 } else {
                     includeLastModified = iuc.getLastModified();
                 }
-                iuc.getInputStream().close();
 
                 if (includeLastModified != include.getValue().longValue()) {
                     return true;
@@ -523,6 +521,13 @@ public abstract class Compiler {
                     log.debug("Problem accessing resource. Treat as outdated.",
                             e);
                 return true;
+            } finally {
+                if (iuc != null) {
+                    try {
+                        iuc.getInputStream().close();
+                    } catch (IOException e) {
+                    }
+                }
             }
         }
 
@@ -555,17 +560,14 @@ public abstract class Compiler {
         removeGeneratedClassFiles();
 
         try {
-            String javaFileName = ctxt.getServletJavaFileName();
-            if (javaFileName != null) {
-                File javaFile = new File(javaFileName);
-                if (log.isDebugEnabled())
-                    log.debug("Deleting " + javaFile);
-                if (javaFile.exists()) {
-                    if (!javaFile.delete()) {
-                        log.warn(Localizer.getMessage(
-                                "jsp.warning.compiler.javafile.delete.fail",
-                                javaFile.getAbsolutePath()));
-                    }
+            File javaFile = new File(ctxt.getServletJavaFileName());
+            if (log.isDebugEnabled())
+                log.debug("Deleting " + javaFile);
+            if (javaFile.exists()) {
+                if (!javaFile.delete()) {
+                    log.warn(Localizer.getMessage(
+                            "jsp.warning.compiler.javafile.delete.fail",
+                            javaFile.getAbsolutePath()));
                 }
             }
         } catch (Exception e) {
@@ -577,17 +579,14 @@ public abstract class Compiler {
 
     public void removeGeneratedClassFiles() {
         try {
-            String classFileName = ctxt.getClassFileName();
-            if (classFileName != null) {
-                File classFile = new File(classFileName);
-                if (log.isDebugEnabled())
-                    log.debug("Deleting " + classFile);
-                if (classFile.exists()) {
-                    if (!classFile.delete()) {
-                        log.warn(Localizer.getMessage(
-                                "jsp.warning.compiler.classfile.delete.fail",
-                                classFile.getAbsolutePath()));
-                    }
+            File classFile = new File(ctxt.getClassFileName());
+            if (log.isDebugEnabled())
+                log.debug("Deleting " + classFile);
+            if (classFile.exists()) {
+                if (!classFile.delete()) {
+                    log.warn(Localizer.getMessage(
+                            "jsp.warning.compiler.classfile.delete.fail",
+                            classFile.getAbsolutePath()));
                 }
             }
         } catch (Exception e) {

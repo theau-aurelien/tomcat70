@@ -144,7 +144,7 @@ public class Status {
      * APR_ANONYMOUS      APR is using anonymous shared memory
      * APR_FILEBASED      APR is using a file name as the key to the shared memory
      * APR_KEYBASED       APR is using a shared key as the key to the shared memory
-     * APR_EINIT          Ininitalizer value.  If no option has been found, but
+     * APR_EINIT          Initializer value.  If no option has been found, but
      *                    the status variable requires a value, this should be used
      * APR_ENOTIMPL       The APR function has not been implemented on this
      *                    platform, either because nobody has gotten to it yet,
@@ -183,7 +183,7 @@ public class Status {
     private static native boolean is(int err, int idx);
     /**
      * APR_STATUS_IS Status Value Tests
-     * <br /><b>Warning :</b> For any particular error condition, more than one of these tests
+     * <br><b>Warning :</b> For any particular error condition, more than one of these tests
      *      may match. This is because platform-specific error codes may not
      *      always match the semantics of the POSIX codes these tests (and the
      *      corresponding APR error codes) are named after. A notable example

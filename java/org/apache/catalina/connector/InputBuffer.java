@@ -21,7 +21,8 @@ import java.io.Reader;
 import java.security.AccessController;
 import java.security.PrivilegedActionException;
 import java.security.PrivilegedExceptionAction;
-import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.catalina.security.SecurityUtil;
 import org.apache.coyote.ActionCode;
@@ -106,8 +107,7 @@ public class InputBuffer extends Reader
     /**
      * List of encoders.
      */
-    protected HashMap<String,B2CConverter> encoders =
-        new HashMap<String,B2CConverter>();
+    private final Map<String,B2CConverter> encoders = new ConcurrentHashMap<String, B2CConverter>();
 
 
     /**
@@ -362,7 +362,7 @@ public class InputBuffer extends Reader
         } else {
             // Make sure there's enough space in the worst case
             cb.makeSpace(bb.getLength());
-            if ((cb.getBuffer().length - cb.getEnd()) == 0) {
+            if ((cb.getBuffer().length - cb.getEnd()) == 0 && bb.getLength() != 0) {
                 // We went over the limit
                 cb.setOffset(0);
                 cb.setEnd(0);
@@ -556,10 +556,12 @@ public class InputBuffer extends Reader
 
                             }
                     );
-                }catch(PrivilegedActionException ex){
+                } catch (PrivilegedActionException ex){
                     Exception e = ex.getException();
                     if (e instanceof IOException) {
                         throw (IOException)e;
+                    } else {
+                        throw new IOException(e);
                     }
                 }
             } else {

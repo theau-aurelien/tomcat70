@@ -18,14 +18,12 @@
 package org.apache.tomcat.util.bcel.classfile;
 
 import java.io.BufferedInputStream;
+import java.io.DataInput;
 import java.io.DataInputStream;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
 
-import org.apache.tomcat.util.bcel.Constants;
+import org.apache.tomcat.util.bcel.Const;
 
 /**
  * Wrapper class that parses a given Java .class file. The method <A
@@ -35,46 +33,31 @@ import org.apache.tomcat.util.bcel.Constants;
  * the caller.
  *
  * The structure and the names comply, except for a few conveniences,
- * exactly with the <A href="ftp://java.sun.com/docs/specs/vmspec.ps">
+ * exactly with the <A href="http://docs.oracle.com/javase/specs/">
  * JVM specification 1.0</a>. See this paper for
  * further details about the structure of a bytecode file.
- *
- * @author <A HREF="mailto:m.dahm@gmx.de">M. Dahm</A> 
  */
 public final class ClassParser {
 
-    private DataInputStream file;
-    private boolean fileOwned;
-    private String file_name;
-    private String zip_file;
-    private int class_name_index, superclass_name_index;
-    private int major, minor; // Compiler version
+    private static final int MAGIC = 0xCAFEBABE;
+
+    private final DataInput dataInputStream;
+    private String class_name, superclass_name;
     private int access_flags; // Access rights of parsed class
-    private int[] interfaces; // Names of implemented interfaces
+    private String[] interface_names; // Names of implemented interfaces
     private ConstantPool constant_pool; // collection of constants
-    private Field[] fields; // class fields, i.e., its variables
-    private Method[] methods; // methods defined in the class
-    private Attribute[] attributes; // attributes defined in the class
-    private boolean is_zip; // Loaded from zip file
+    private Annotations runtimeVisibleAnnotations; // "RuntimeVisibleAnnotations" attribute defined in the class
     private static final int BUFSIZE = 8192;
 
+    private static final String[] INTERFACES_EMPTY_ARRAY = new String[0];
 
     /**
      * Parse class from the given stream.
      *
-     * @param file Input stream
-     * @param file_name File name
+     * @param inputStream Input stream
      */
-    public ClassParser(InputStream file, String file_name) {
-        this.file_name = file_name;
-        fileOwned = false;
-        String clazz = file.getClass().getName(); // Not a very clean solution ...
-        is_zip = clazz.startsWith("java.util.zip.") || clazz.startsWith("java.util.jar.");
-        if (file instanceof DataInputStream) {
-            this.file = (DataInputStream) file;
-        } else {
-            this.file = new DataInputStream(new BufferedInputStream(file, BUFSIZE));
-        }
+    public ClassParser(final InputStream inputStream) {
+        this.dataInputStream = new DataInputStream(new BufferedInputStream(inputStream, BUFSIZE));
     }
 
 
@@ -86,79 +69,34 @@ public final class ClassParser {
      * is performed by the java interpreter).
      *
      * @return Class object representing the parsed class file
-     * @throws  IOException
-     * @throws  ClassFormatException
+     * @throws  IOException If an I/O occurs reading the byte code
+     * @throws  ClassFormatException If the byte code is invalid
      */
     public JavaClass parse() throws IOException, ClassFormatException {
-        ZipFile zip = null;
-        try {
-            if (fileOwned) {
-                if (is_zip) {
-                    zip = new ZipFile(zip_file);
-                    ZipEntry entry = zip.getEntry(file_name);
-                    
-                    if (entry == null) {
-                        throw new IOException("File " + file_name + " not found");
-                    }
-                    
-                    file = new DataInputStream(new BufferedInputStream(zip.getInputStream(entry),
-                            BUFSIZE));
-                } else {
-                    file = new DataInputStream(new BufferedInputStream(new FileInputStream(
-                            file_name), BUFSIZE));
-                }
-            }
-            /****************** Read headers ********************************/
-            // Check magic tag of class file
-            readID();
-            // Get compiler version
-            readVersion();
-            /****************** Read constant pool and related **************/
-            // Read constant pool entries
-            readConstantPool();
-            // Get class information
-            readClassInfo();
-            // Get interface information, i.e., implemented interfaces
-            readInterfaces();
-            /****************** Read class fields and methods ***************/
-            // Read class fields, i.e., the variables of the class
-            readFields();
-            // Read class methods, i.e., the functions in the class
-            readMethods();
-            // Read class attributes
-            readAttributes();
-            // Check for unknown variables
-            //Unknown[] u = Unknown.getUnknownAttributes();
-            //for(int i=0; i < u.length; i++)
-            //  System.err.println("WARNING: " + u[i]);
-            // Everything should have been read now
-            //      if(file.available() > 0) {
-            //        int bytes = file.available();
-            //        byte[] buf = new byte[bytes];
-            //        file.read(buf);
-            //        if(!(is_zip && (buf.length == 1))) {
-            //          System.err.println("WARNING: Trailing garbage at end of " + file_name);
-            //          System.err.println(bytes + " extra bytes: " + Utility.toHexString(buf));
-            //        }
-            //      }
-        } finally {
-            // Read everything of interest, so close the file
-            if (fileOwned) {
-                try {
-                    if (file != null) {
-                        file.close();
-                    }
-                    if (zip != null) {
-                        zip.close();
-                    }
-                } catch (IOException ioe) {
-                    //ignore close exceptions
-                }
-            }
-        }
+        /****************** Read headers ********************************/
+        // Check magic tag of class file
+        readID();
+        // Get compiler version
+        readVersion();
+        /****************** Read constant pool and related **************/
+        // Read constant pool entries
+        readConstantPool();
+        // Get class information
+        readClassInfo();
+        // Get interface information, i.e., implemented interfaces
+        readInterfaces();
+        /****************** Read class fields and methods ***************/
+        // Read class fields, i.e., the variables of the class
+        readFields();
+        // Read class methods, i.e., the functions in the class
+        readMethods();
+        // Read class attributes
+        readAttributes();
+
         // Return the information we have gathered in a new object
-        return new JavaClass(class_name_index, superclass_name_index, file_name, major, minor,
-                access_flags, constant_pool, interfaces, fields, methods, attributes);
+        return new JavaClass(class_name, superclass_name,
+                access_flags, constant_pool, interface_names,
+                runtimeVisibleAnnotations);
     }
 
 
@@ -168,11 +106,30 @@ public final class ClassParser {
      * @throws  ClassFormatException
      */
     private void readAttributes() throws IOException, ClassFormatException {
-        int attributes_count;
-        attributes_count = file.readUnsignedShort();
-        attributes = new Attribute[attributes_count];
+        final int attributes_count = dataInputStream.readUnsignedShort();
         for (int i = 0; i < attributes_count; i++) {
-            attributes[i] = Attribute.readAttribute(file, constant_pool);
+            ConstantUtf8 c;
+            String name;
+            int name_index;
+            int length;
+            // Get class name from constant pool via `name_index' indirection
+            name_index = dataInputStream.readUnsignedShort();
+            c = (ConstantUtf8) constant_pool.getConstant(name_index,
+                    Const.CONSTANT_Utf8);
+            name = c.getBytes();
+            // Length of data in bytes
+            length = dataInputStream.readInt();
+
+            if (name.equals("RuntimeVisibleAnnotations")) {
+                if (runtimeVisibleAnnotations != null) {
+                    throw new ClassFormatException(
+                            "RuntimeVisibleAnnotations attribute is not allowed more than once in a class file");
+                }
+                runtimeVisibleAnnotations = new Annotations(dataInputStream, constant_pool);
+            } else {
+                // All other attributes are skipped
+                Utility.skipFully(dataInputStream, length);
+            }
         }
     }
 
@@ -183,19 +140,28 @@ public final class ClassParser {
      * @throws  ClassFormatException
      */
     private void readClassInfo() throws IOException, ClassFormatException {
-        access_flags = file.readUnsignedShort();
+        access_flags = dataInputStream.readUnsignedShort();
         /* Interfaces are implicitely abstract, the flag should be set
          * according to the JVM specification.
          */
-        if ((access_flags & Constants.ACC_INTERFACE) != 0) {
-            access_flags |= Constants.ACC_ABSTRACT;
+        if ((access_flags & Const.ACC_INTERFACE) != 0) {
+            access_flags |= Const.ACC_ABSTRACT;
         }
-        if (((access_flags & Constants.ACC_ABSTRACT) != 0)
-                && ((access_flags & Constants.ACC_FINAL) != 0)) {
-            throw new ClassFormatException("Class " + file_name + " can't be both final and abstract");
+        if (((access_flags & Const.ACC_ABSTRACT) != 0)
+                && ((access_flags & Const.ACC_FINAL) != 0)) {
+            throw new ClassFormatException("Class can't be both final and abstract");
         }
-        class_name_index = file.readUnsignedShort();
-        superclass_name_index = file.readUnsignedShort();
+
+        int class_name_index = dataInputStream.readUnsignedShort();
+        class_name = Utility.getClassName(constant_pool, class_name_index);
+
+        int superclass_name_index = dataInputStream.readUnsignedShort();
+        if (superclass_name_index > 0) {
+            // May be zero -> class is java.lang.Object
+            superclass_name = Utility.getClassName(constant_pool, superclass_name_index);
+        } else {
+            superclass_name = "java.lang.Object";
+        }
     }
 
 
@@ -205,7 +171,7 @@ public final class ClassParser {
      * @throws  ClassFormatException
      */
     private void readConstantPool() throws IOException, ClassFormatException {
-        constant_pool = new ConstantPool(file);
+        constant_pool = new ConstantPool(dataInputStream);
     }
 
 
@@ -215,11 +181,9 @@ public final class ClassParser {
      * @throws  ClassFormatException
      */
     private void readFields() throws IOException, ClassFormatException {
-        int fields_count;
-        fields_count = file.readUnsignedShort();
-        fields = new Field[fields_count];
+        final int fields_count = dataInputStream.readUnsignedShort();
         for (int i = 0; i < fields_count; i++) {
-            fields[i] = new Field(file, constant_pool);
+            Utility.swallowFieldOrMethod(dataInputStream);
         }
     }
 
@@ -232,9 +196,8 @@ public final class ClassParser {
      * @throws  ClassFormatException
      */
     private void readID() throws IOException, ClassFormatException {
-        int magic = 0xCAFEBABE;
-        if (file.readInt() != magic) {
-            throw new ClassFormatException(file_name + " is not a Java .class file");
+        if (dataInputStream.readInt() != MAGIC) {
+            throw new ClassFormatException("It is not a Java .class file");
         }
     }
 
@@ -245,11 +208,15 @@ public final class ClassParser {
      * @throws  ClassFormatException
      */
     private void readInterfaces() throws IOException, ClassFormatException {
-        int interfaces_count;
-        interfaces_count = file.readUnsignedShort();
-        interfaces = new int[interfaces_count];
-        for (int i = 0; i < interfaces_count; i++) {
-            interfaces[i] = file.readUnsignedShort();
+        final int interfaces_count = dataInputStream.readUnsignedShort();
+        if (interfaces_count > 0) {
+            interface_names = new String[interfaces_count];
+            for (int i = 0; i < interfaces_count; i++) {
+                int index = dataInputStream.readUnsignedShort();
+                interface_names[i] = Utility.getClassName(constant_pool, index);
+            }
+        } else {
+            interface_names = INTERFACES_EMPTY_ARRAY;
         }
     }
 
@@ -260,11 +227,9 @@ public final class ClassParser {
      * @throws  ClassFormatException
      */
     private void readMethods() throws IOException, ClassFormatException {
-        int methods_count;
-        methods_count = file.readUnsignedShort();
-        methods = new Method[methods_count];
+        final int methods_count = dataInputStream.readUnsignedShort();
         for (int i = 0; i < methods_count; i++) {
-            methods[i] = new Method(file, constant_pool);
+            Utility.swallowFieldOrMethod(dataInputStream);
         }
     }
 
@@ -275,7 +240,8 @@ public final class ClassParser {
      * @throws  ClassFormatException
      */
     private void readVersion() throws IOException, ClassFormatException {
-        minor = file.readUnsignedShort();
-        major = file.readUnsignedShort();
+        // file.readUnsignedShort(); // Unused minor
+        // file.readUnsignedShort(); // Unused major
+        Utility.skipFully(dataInputStream, 4);
     }
 }

@@ -63,9 +63,9 @@ import org.apache.tomcat.util.res.StringManager;
  */
 final class ApplicationDispatcher implements AsyncDispatcher, RequestDispatcher {
 
-    protected static final boolean STRICT_SERVLET_COMPLIANCE;
+    static final boolean STRICT_SERVLET_COMPLIANCE;
 
-    protected static final boolean WRAP_SAME_OBJECT;
+    static final boolean WRAP_SAME_OBJECT;
 
 
     static {
@@ -76,8 +76,7 @@ final class ApplicationDispatcher implements AsyncDispatcher, RequestDispatcher 
         if (wrapSameObject == null) {
             WRAP_SAME_OBJECT = STRICT_SERVLET_COMPLIANCE;
         } else {
-            WRAP_SAME_OBJECT =
-                Boolean.valueOf(wrapSameObject).booleanValue();
+            WRAP_SAME_OBJECT = Boolean.parseBoolean(wrapSameObject);
         }
     }
 
@@ -411,7 +410,7 @@ final class ApplicationDispatcher implements AsyncDispatcher, RequestDispatcher 
             processRequest(request,response,state);
         }
 
-        if (request.getAsyncContext() != null) {
+        if (request.isAsyncStarted()) {
             // An async request was started during the forward, don't close the
             // response as it may be written to during the async handling
             return;
@@ -419,7 +418,7 @@ final class ApplicationDispatcher implements AsyncDispatcher, RequestDispatcher 
 
         // This is not a real close in order to support error processing
         if (wrapper.getLogger().isDebugEnabled() )
-            wrapper.getLogger().debug(" Disabling the response for futher output");
+            wrapper.getLogger().debug(" Disabling the response for further output");
 
         if  (response instanceof ResponseFacade) {
             ((ResponseFacade) response).finish();
@@ -637,10 +636,6 @@ final class ApplicationDispatcher implements AsyncDispatcher, RequestDispatcher 
 
         ApplicationHttpRequest wrequest =
             (ApplicationHttpRequest) wrapRequest(state);
-
-        if (queryString != null) {
-            wrequest.setQueryParams(queryString);
-        }
 
         wrequest.setAttribute(Globals.DISPATCHER_TYPE_ATTR,
                 DispatcherType.ASYNC);

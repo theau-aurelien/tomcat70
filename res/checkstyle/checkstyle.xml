@@ -27,7 +27,7 @@
   <module name="RegexpHeader">
     <property name="headerFile" value="${basedir}/res/checkstyle/header-al2.txt"/>
     <property name="multiLines" value="1, 2, 3, 4"/>
-    <property name="fileExtensions" value="java,xml,jsp,txt,sh,bat"/>
+    <property name="fileExtensions" value="java,xml,jsp,txt,sh,bat,properties"/>
   </module>
 
   <!-- Whitespace -->
@@ -37,6 +37,15 @@
     <!-- Cache what has passed checkstyle -->
     <property name="cacheFile"
               value="${tomcat.output}/res/checkstyle/cachefile-checkstyle.xml"/>
+
+    <!-- Annotations -->
+    <module name="AnnotationLocation"/>
+    <!-- 1 false positive, fixed in later Checkstyle release but can't upgrade
+         as it requires Java 7.
+    <module name="AnnotationUseStyle"/>
+    -->
+    <module name="MissingOverride"/>
+    <module name="PackageAnnotation"/>
 
     <!-- Block Checks -->
     <!--  ~60 errors
@@ -57,7 +66,7 @@
         <property name="illegalPkgs" value="sun,junit.framework"/>
     </module>
     <module name="ImportOrder">
-        <property name="groups" value="java,javax,async,jsp2,junit,org.junit,org,util"/>
+        <property name="groups" value="java,javax,org.hamcrest,org.junit,org,async,jsp2,util"/>
         <property name="ordered" value="true"/>
         <property name="separated" value="true"/>
         <property name="option" value="above"/>

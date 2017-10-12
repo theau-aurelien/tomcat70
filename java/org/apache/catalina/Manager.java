@@ -54,7 +54,12 @@ public interface Manager {
 
 
     /**
-     * Set the Container with which this Manager is associated.
+     * Set the Container with which this Manager is associated. The Container
+     * must be set to a non-null value before the Manager is first used.
+     * Multiple calls to this method before first use are permitted. Once the
+     * Manager has been used, this method may not be used to change the
+     * Container (including setting a {@code null} value) that the Manager is
+     * associated with.
      *
      * @param container The newly associated Container
      */
@@ -64,7 +69,11 @@ public interface Manager {
     /**
      * Return the distributable flag for the sessions supported by
      * this Manager.
+     *
+     * @deprecated Ignored. {@link Context#getDistributable()} always takes
+     *             precedence. Will be removed in Tomcat 9.0.x.
      */
+    @Deprecated
     public boolean getDistributable();
 
 
@@ -74,7 +83,11 @@ public interface Manager {
      * sessions associated with this manager must implement Serializable.
      *
      * @param distributable The new distributable flag
+     *
+     * @deprecated Ignored. {@link Context#getDistributable()} always takes
+     *             precedence. Will be removed in Tomcat 9.0.x.
      */
+    @Deprecated
     public void setDistributable(boolean distributable);
 
 
@@ -89,7 +102,11 @@ public interface Manager {
     /**
      * Return the default maximum inactive interval (in seconds)
      * for Sessions created by this Manager.
+     *
+     * @deprecated Ignored. {@link Context#getSessionTimeout()} always takes
+     *             precedence. Will be removed in Tomcat 9.0.x.
      */
+    @Deprecated
     public int getMaxInactiveInterval();
 
 
@@ -98,7 +115,11 @@ public interface Manager {
      * for Sessions created by this Manager.
      *
      * @param interval The new default value
+     *
+     * @deprecated Ignored. {@link Context#getSessionTimeout()} always takes
+     *             precedence. Will be removed in Tomcat 9.0.x.
      */
+    @Deprecated
     public void setMaxInactiveInterval(int interval);
 
 
@@ -362,4 +383,18 @@ public interface Manager {
       */
      public void backgroundProcess();
 
+
+
+    /**
+     * Would the Manager distribute the given session attribute? Manager
+     * implementations may provide additional configuration options to control
+     * which attributes are distributable.
+     *
+     * @param name  The attribute name
+     * @param value The attribute value
+     *
+     * @return {@code true} if the Manager would distribute the given attribute
+     *         otherwise {@code false}
+     */
+    public boolean willAttributeDistribute(String name, Object value);
 }

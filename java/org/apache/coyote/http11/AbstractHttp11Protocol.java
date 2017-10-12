@@ -16,11 +16,18 @@
  */
 package org.apache.coyote.http11;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.coyote.AbstractProtocol;
 import org.apache.tomcat.util.res.StringManager;
 
-public abstract class AbstractHttp11Protocol extends AbstractProtocol {
+public abstract class AbstractHttp11Protocol<S> extends AbstractProtocol<S> {
 
     /**
      * The string manager for this package.
@@ -38,13 +45,37 @@ public abstract class AbstractHttp11Protocol extends AbstractProtocol {
     // ------------------------------------------------ HTTP specific properties
     // ------------------------------------------ managed in the ProtocolHandler
 
+    private boolean rejectIllegalHeaderName = false;
+    /**
+     * If an HTTP request is received that contains an illegal header name (i.e.
+     * the header name is not a token) will the request be rejected (with a 400
+     * response) or will the illegal header be ignored.
+     *
+     * @return {@code true} if the request will be rejected or {@code false} if
+     *         the header will be ignored
+     */
+    public boolean getRejectIllegalHeaderName() { return rejectIllegalHeaderName; }
+    /**
+     * If an HTTP request is received that contains an illegal header name (i.e.
+     * the header name is not a token) should the request be rejected (with a
+     * 400 response) or should the illegal header be ignored.
+     *
+     * @param rejectIllegalHeaderName   {@code true} to reject requests with
+     *                                  illegal header names, {@code false} to
+     *                                  ignore the header
+     */
+    public void setRejectIllegalHeaderName(boolean rejectIllegalHeaderName) {
+        this.rejectIllegalHeaderName = rejectIllegalHeaderName;
+    }
+
+
     private int socketBuffer = 9000;
     public int getSocketBuffer() { return socketBuffer; }
     public void setSocketBuffer(int socketBuffer) {
         this.socketBuffer = socketBuffer;
     }
 
-    
+
     /**
      * Maximum size of the post which will be saved when processing certain
      * requests, such as a POST.
@@ -52,7 +83,7 @@ public abstract class AbstractHttp11Protocol extends AbstractProtocol {
     private int maxSavePostSize = 4 * 1024;
     public int getMaxSavePostSize() { return maxSavePostSize; }
     public void setMaxSavePostSize(int valueI) { maxSavePostSize = valueI; }
-    
+
 
     /**
      * Maximum size of the HTTP message header.
@@ -61,10 +92,10 @@ public abstract class AbstractHttp11Protocol extends AbstractProtocol {
     public int getMaxHttpHeaderSize() { return maxHttpHeaderSize; }
     public void setMaxHttpHeaderSize(int valueI) { maxHttpHeaderSize = valueI; }
 
-    
+
     /**
      * Specifies a different (usually  longer) connection timeout during data
-     * upload. 
+     * upload.
      */
     private int connectionUploadTimeout = 300000;
     public int getConnectionUploadTimeout() { return connectionUploadTimeout; }
@@ -101,16 +132,26 @@ public abstract class AbstractHttp11Protocol extends AbstractProtocol {
     }
 
 
-    private String compressableMimeTypes = "text/html,text/xml,text/plain";
-    public String getCompressableMimeType() { return compressableMimeTypes; }
+    private String compressibleMimeTypes = "text/html,text/xml,text/plain,text/css,text/javascript,application/javascript";
+    @Deprecated
+    public String getCompressableMimeType() {
+        return getCompressibleMimeType();
+    }
+    @Deprecated
     public void setCompressableMimeType(String valueS) {
-        compressableMimeTypes = valueS;
+        setCompressibleMimeType(valueS);
     }
+    @Deprecated
     public String getCompressableMimeTypes() {
-        return getCompressableMimeType();
+        return getCompressibleMimeType();
     }
+    @Deprecated
     public void setCompressableMimeTypes(String valueS) {
-        setCompressableMimeType(valueS);
+        setCompressibleMimeType(valueS);
+    }
+    public String getCompressibleMimeType() { return compressibleMimeTypes; }
+    public void setCompressibleMimeType(String valueS) {
+        compressibleMimeTypes = valueS;
     }
 
 
@@ -163,16 +204,26 @@ public abstract class AbstractHttp11Protocol extends AbstractProtocol {
 
 
     /**
+     * Maximum amount of request body to swallow.
+     */
+    private int maxSwallowSize = 2 * 1024 * 1024;
+    public int getMaxSwallowSize() { return maxSwallowSize; }
+    public void setMaxSwallowSize(int maxSwallowSize) {
+        this.maxSwallowSize = maxSwallowSize;
+    }
+
+
+    /**
      * This field indicates if the protocol is treated as if it is secure. This
      * normally means https is being used but can be used to fake https e.g
      * behind a reverse proxy.
      */
     private boolean secure;
     public boolean getSecure() { return secure; }
-    public void setSecure(boolean b) { 
-        secure = b;         
+    public void setSecure(boolean b) {
+        secure = b;
     }
-    
+
 
     /**
      * The size of the buffer used by the ServletOutputStream when performing
@@ -185,23 +236,98 @@ public abstract class AbstractHttp11Protocol extends AbstractProtocol {
     }
 
 
+    /**
+     * The names of headers that are allowed to be sent via a trailer when using
+     * chunked encoding. They are stored in lower case.
+     */
+    private Set<String> allowedTrailerHeaders =
+            Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
+    public void setAllowedTrailerHeaders(String commaSeparatedHeaders) {
+        // Jump through some hoops so we don't end up with an empty set while
+        // doing updates.
+        Set<String> toRemove = new HashSet<String>();
+        toRemove.addAll(allowedTrailerHeaders);
+        if (commaSeparatedHeaders != null) {
+            String[] headers = commaSeparatedHeaders.split(",");
+            for (String header : headers) {
+                String trimmedHeader = header.trim().toLowerCase(Locale.ENGLISH);
+                if (toRemove.contains(trimmedHeader)) {
+                    toRemove.remove(trimmedHeader);
+                } else {
+                    allowedTrailerHeaders.add(trimmedHeader);
+                }
+            }
+            allowedTrailerHeaders.removeAll(toRemove);
+        }
+    }
+    public String getAllowedTrailerHeaders() {
+        // Chances of a size change between these lines are small enough that a
+        // sync is unnecessary.
+        List<String> copy = new ArrayList<String>(allowedTrailerHeaders.size());
+        copy.addAll(allowedTrailerHeaders);
+        StringBuilder result = new StringBuilder();
+        boolean first = true;
+        for (String header : copy) {
+            if (first) {
+                first = false;
+            } else {
+                result.append(',');
+            }
+            result.append(header);
+        }
+        return result.toString();
+    }
+    public void addAllowedTrailerHeader(String header) {
+        if (header != null) {
+            allowedTrailerHeaders.add(header.trim().toLowerCase(Locale.ENGLISH));
+        }
+    }
+    public void removeAllowedTrailerHeader(String header) {
+        if (header != null) {
+            allowedTrailerHeaders.remove(header.trim().toLowerCase(Locale.ENGLISH));
+        }
+    }
+    protected Set<String> getAllowedTrailerHeadersAsSet() {
+        return allowedTrailerHeaders;
+    }
+
+
     // ------------------------------------------------ HTTP specific properties
     // ------------------------------------------ passed through to the EndPoint
-    
+
     public boolean isSSLEnabled() { return endpoint.isSSLEnabled();}
     public void setSSLEnabled(boolean SSLEnabled) {
         endpoint.setSSLEnabled(SSLEnabled);
-    }    
+    }
 
 
     /**
-     * Maximum number of requests which can be performed over a keepalive 
+     * Maximum number of requests which can be performed over a keepalive
      * connection. The default is the same as for Apache HTTP Server.
      */
-    public int getMaxKeepAliveRequests() { 
+    public int getMaxKeepAliveRequests() {
         return endpoint.getMaxKeepAliveRequests();
     }
     public void setMaxKeepAliveRequests(int mkar) {
         endpoint.setMaxKeepAliveRequests(mkar);
+    }
+    // ------------------------------------------------------------- Common code
+
+    // Common configuration required for all new HTTP11 processors
+    protected void configureProcessor(AbstractHttp11Processor<S> processor) {
+        processor.setAdapter(getAdapter());
+        processor.setMaxKeepAliveRequests(getMaxKeepAliveRequests());
+        processor.setKeepAliveTimeout(getKeepAliveTimeout());
+        processor.setConnectionUploadTimeout(getConnectionUploadTimeout());
+        processor.setDisableUploadTimeout(getDisableUploadTimeout());
+        processor.setCompressionMinSize(getCompressionMinSize());
+        processor.setCompression(getCompression());
+        processor.setNoCompressionUserAgents(getNoCompressionUserAgents());
+        processor.setCompressibleMimeTypes(getCompressibleMimeType());
+        processor.setRestrictedUserAgents(getRestrictedUserAgents());
+        processor.setSocketBuffer(getSocketBuffer());
+        processor.setMaxSavePostSize(getMaxSavePostSize());
+        processor.setServer(getServer());
+        processor.setMaxCookieCount(getMaxCookieCount());
     }
 }

@@ -53,8 +53,8 @@ import org.apache.jasper.Constants;
 import org.apache.jasper.compiler.Localizer;
 import org.apache.jasper.el.ELContextImpl;
 import org.apache.jasper.el.ExpressionEvaluatorImpl;
-import org.apache.jasper.el.FunctionMapperImpl;
 import org.apache.jasper.el.VariableResolverImpl;
+import org.apache.jasper.runtime.JspContextWrapper.ELContextWrapper;
 import org.apache.jasper.security.SecurityUtil;
 
 /**
@@ -863,7 +863,7 @@ public class PageContextImpl extends PageContext {
              */
             request.setAttribute(PageContext.EXCEPTION, t);
             request.setAttribute(RequestDispatcher.ERROR_STATUS_CODE,
-                    new Integer(HttpServletResponse.SC_INTERNAL_SERVER_ERROR));
+                    Integer.valueOf(HttpServletResponse.SC_INTERNAL_SERVER_ERROR));
             request.setAttribute(RequestDispatcher.ERROR_REQUEST_URI,
                     ((HttpServletRequest) request).getRequestURI());
             request.setAttribute(RequestDispatcher.ERROR_SERVLET_NAME,
@@ -937,37 +937,17 @@ public class PageContextImpl extends PageContext {
             final Class<?> expectedType, final PageContext pageContext,
             final ProtectedFunctionMapper functionMap, final boolean escape)
             throws ELException {
-        Object retValue;
         final ExpressionFactory exprFactory = jspf.getJspApplicationContext(pageContext.getServletContext()).getExpressionFactory();
-        if (SecurityUtil.isPackageProtectionEnabled()) {
-            try {
-                retValue = AccessController
-                        .doPrivileged(new PrivilegedExceptionAction<Object>() {
-
-                            @Override
-                            public Object run() throws Exception {
-                                ELContextImpl ctx = (ELContextImpl) pageContext.getELContext();
-                                ctx.setFunctionMapper(new FunctionMapperImpl(functionMap));
-                                ValueExpression ve = exprFactory.createValueExpression(ctx, expression, expectedType);
-                                return ve.getValue(ctx);
-                            }
-                        });
-            } catch (PrivilegedActionException ex) {
-                Exception realEx = ex.getException();
-                if (realEx instanceof ELException) {
-                    throw (ELException) realEx;
-                } else {
-                    throw new ELException(realEx);
-                }
-            }
+        ELContext ctx = pageContext.getELContext();
+        ELContextImpl ctxImpl;
+        if (ctx instanceof ELContextWrapper) {
+            ctxImpl = (ELContextImpl) ((ELContextWrapper) ctx).getWrappedELContext();
         } else {
-            ELContextImpl ctx = (ELContextImpl) pageContext.getELContext();
-            ctx.setFunctionMapper(new FunctionMapperImpl(functionMap));
-            ValueExpression ve = exprFactory.createValueExpression(ctx, expression, expectedType);
-            retValue = ve.getValue(ctx);
+            ctxImpl = (ELContextImpl) ctx;
         }
-
-        return retValue;
+        ctxImpl.setFunctionMapper(functionMap);
+        ValueExpression ve = exprFactory.createValueExpression(ctx, expression, expectedType);
+        return ve.getValue(ctx);
     }
 
     @Override

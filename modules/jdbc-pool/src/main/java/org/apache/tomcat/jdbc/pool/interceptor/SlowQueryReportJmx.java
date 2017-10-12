@@ -60,7 +60,7 @@ public class SlowQueryReportJmx extends SlowQueryReport implements NotificationE
 
     public static final String objectNameAttribute = "objectName";
 
-    protected static CompositeType SLOW_QUERY_TYPE;
+    protected static volatile CompositeType SLOW_QUERY_TYPE;
 
     private static final Log log = LogFactory.getLog(SlowQueryReportJmx.class);
 
@@ -124,7 +124,6 @@ public class SlowQueryReportJmx extends SlowQueryReport implements NotificationE
 
     @Override
     public void reset(ConnectionPool parent, PooledConnection con) {
-        // TODO Auto-generated method stub
         super.reset(parent, con);
         if (parent!=null) {
             poolName = parent.getName();

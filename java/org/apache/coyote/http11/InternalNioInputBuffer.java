@@ -25,6 +25,7 @@ import org.apache.coyote.InputBuffer;
 import org.apache.coyote.Request;
 import org.apache.tomcat.util.buf.ByteChunk;
 import org.apache.tomcat.util.buf.MessageBytes;
+import org.apache.tomcat.util.http.parser.HttpParser;
 import org.apache.tomcat.util.net.AbstractEndpoint;
 import org.apache.tomcat.util.net.NioChannel;
 import org.apache.tomcat.util.net.NioEndpoint;
@@ -92,17 +93,19 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
     }
 
     // ----------------------------------------------------------- Constructors
-    
+
 
     /**
      * Alternate constructor.
      */
-    public InternalNioInputBuffer(Request request, int headerBufferSize) {
+    public InternalNioInputBuffer(Request request, int headerBufferSize,
+            boolean rejectIllegalHeaderName) {
 
         this.request = request;
         headers = request.getMimeHeaders();
 
         this.headerBufferSize = headerBufferSize;
+        this.rejectIllegalHeaderName = rejectIllegalHeaderName;
 
         inputStreamInputBuffer = new SocketInputBuffer();
 
@@ -137,7 +140,7 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
      * Underlying socket.
      */
     private NioChannel socket;
-    
+
     /**
      * Selector pool, for blocking reads and blocking writes
      */
@@ -159,7 +162,7 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
     // --------------------------------------------------------- Public Methods
 
     /**
-     * Recycle the input buffer. This should be called when closing the 
+     * Recycle the input buffer. This should be called when closing the
      * connection.
      */
     @Override
@@ -178,7 +181,7 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
 
     /**
      * End processing of current HTTP request.
-     * Note: All bytes of the current request should have been already 
+     * Note: All bytes of the current request should have been already
      * consumed. This method only resets all the pointers so that we are ready
      * to parse the next HTTP request.
      */
@@ -195,14 +198,14 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
     }
 
     /**
-     * Read the request line. This function is meant to be used during the 
-     * HTTP request header parsing. Do NOT attempt to read the request body 
+     * Read the request line. This function is meant to be used during the
+     * HTTP request header parsing. Do NOT attempt to read the request body
      * using it.
      *
      * @throws IOException If an exception occurs during the underlying socket
      * read operations, or if the given buffer is not big enough to accommodate
      * the whole line.
-     * @return true if data is properly fed; false if no data is available 
+     * @return true if data is properly fed; false if no data is available
      * immediately and thread should be freed
      */
     @Override
@@ -217,7 +220,7 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
         if ( parsingRequestLinePhase == 0 ) {
             byte chr = 0;
             do {
-                
+
                 // Read new bytes if needed
                 if (pos >= lastValid) {
                     if (useAvailableDataOnly) {
@@ -227,6 +230,11 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
                     if (!fill(true, false)) {
                         return false;
                     }
+                }
+                // Set the start time once we start reading data (even if it is
+                // just skipping blank lines)
+                if (request.getStartTime() < 0) {
+                    request.setStartTime(System.currentTimeMillis());
                 }
                 chr = buf[pos++];
             } while ((chr == Constants.CR) || (chr == Constants.LF));
@@ -243,7 +251,7 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
         if ( parsingRequestLinePhase == 2 ) {
             //
             // Reading the method name
-            // Method name is always US-ASCII
+            // Method name is a token
             //
             boolean space = false;
             while (!space) {
@@ -252,21 +260,20 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
                     if (!fill(true, false)) //request line parsing
                         return false;
                 }
-                // Spec says no CR or LF in method name
-                if (buf[pos] == Constants.CR || buf[pos] == Constants.LF) {
-                    throw new IllegalArgumentException(
-                            sm.getString("iib.invalidmethod"));
-                }
+                // Spec says method name is a token followed by a single SP but
+                // also be tolerant of multiple SP and/or HT.
                 if (buf[pos] == Constants.SP || buf[pos] == Constants.HT) {
                     space = true;
                     request.method().setBytes(buf, parsingRequestLineStart, pos - parsingRequestLineStart);
+                } else if (!HttpParser.isToken(buf[pos])) {
+                    throw new IllegalArgumentException(sm.getString("iib.invalidmethod"));
                 }
                 pos++;
             }
             parsingRequestLinePhase = 3;
         }
         if ( parsingRequestLinePhase == 3 ) {
-            // Spec says single SP but also be tolerant of multiple and/or HT
+            // Spec says single SP but also be tolerant of multiple SP and/or HT
             boolean space = true;
             while (space) {
                 // Read new bytes if needed
@@ -285,7 +292,7 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
         }
         if (parsingRequestLinePhase == 4) {
             // Mark the current buffer position
-            
+
             int end = 0;
             //
             // Reading the URI
@@ -300,21 +307,22 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
                 if (buf[pos] == Constants.SP || buf[pos] == Constants.HT) {
                     space = true;
                     end = pos;
-                } else if ((buf[pos] == Constants.CR) 
+                } else if ((buf[pos] == Constants.CR)
                            || (buf[pos] == Constants.LF)) {
                     // HTTP/0.9 style request
                     parsingRequestLineEol = true;
                     space = true;
                     end = pos;
-                } else if ((buf[pos] == Constants.QUESTION) 
-                           && (parsingRequestLineQPos == -1)) {
+                } else if ((buf[pos] == Constants.QUESTION) && (parsingRequestLineQPos == -1)) {
                     parsingRequestLineQPos = pos;
+                } else if (HttpParser.isNotRequestTarget(buf[pos])) {
+                    throw new IllegalArgumentException(sm.getString("iib.invalidRequestTarget"));
                 }
                 pos++;
             }
             request.unparsedURI().setBytes(buf, parsingRequestLineStart, end - parsingRequestLineStart);
             if (parsingRequestLineQPos >= 0) {
-                request.queryString().setBytes(buf, parsingRequestLineQPos + 1, 
+                request.queryString().setBytes(buf, parsingRequestLineQPos + 1,
                                                end - parsingRequestLineQPos - 1);
                 request.requestURI().setBytes(buf, parsingRequestLineStart, parsingRequestLineQPos - parsingRequestLineStart);
             } else {
@@ -343,10 +351,10 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
             // Mark the current buffer position
             end = 0;
         }
-        if (parsingRequestLinePhase == 6) { 
+        if (parsingRequestLinePhase == 6) {
             //
             // Reading the protocol
-            // Protocol is always US-ASCII
+            // Protocol is always "HTTP/" DIGIT "." DIGIT
             //
             while (!parsingRequestLineEol) {
                 // Read new bytes if needed
@@ -354,17 +362,19 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
                     if (!fill(true, false)) //request line parsing
                         return false;
                 }
-        
+
                 if (buf[pos] == Constants.CR) {
                     end = pos;
                 } else if (buf[pos] == Constants.LF) {
                     if (end == 0)
                         end = pos;
                     parsingRequestLineEol = true;
+                } else if (!HttpParser.isHttpProtocol(buf[pos])) {
+                    throw new IllegalArgumentException(sm.getString("iib.invalidHttpProtocol"));
                 }
                 pos++;
             }
-        
+
             if ( (end - parsingRequestLineStart) > 0) {
                 request.protocol().setBytes(buf, parsingRequestLineStart, end - parsingRequestLineStart);
             } else {
@@ -378,7 +388,7 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
         }
         throw new IllegalStateException("Invalid request line parse phase:"+parsingRequestLinePhase);
     }
-    
+
     private void expand(int newsize) {
         if ( newsize > buf.length ) {
             if (parsingHeader) {
@@ -393,7 +403,7 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
             buf = tmp;
         }
     }
-    
+
     /**
      * Perform blocking read with a timeout if desired
      * @param timeout boolean - if we want to use the timeout data
@@ -402,7 +412,7 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
      * @throws IOException if a socket exception occurs
      * @throws EOFException if end of stream is reached
      */
-    
+
     private int readSocket(boolean timeout, boolean block) throws IOException {
         int nRead = 0;
         socket.getBufHandler().getReadBuffer().clear();
@@ -415,16 +425,15 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
             }
             try {
                 NioEndpoint.KeyAttachment att =
-                        (NioEndpoint.KeyAttachment) socket.getAttachment(false);
+                        (NioEndpoint.KeyAttachment) socket.getAttachment();
                 if (att == null) {
                     throw new IOException("Key must be cancelled.");
                 }
                 nRead = pool.read(socket.getBufHandler().getReadBuffer(),
-                        socket, selector,
-                        socket.getIOChannel().socket().getSoTimeout());
+                        socket, selector, att.getTimeout());
             } catch ( EOFException eof ) {
                 nRead = -1;
-            } finally { 
+            } finally {
                 if ( selector != null ) pool.put(selector);
             }
         } else {
@@ -457,7 +466,7 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
         }
 
         HeaderParseStatus status = HeaderParseStatus.HAVE_MORE_HEADERS;
-        
+
         do {
             status = parseHeader();
             // Checking that
@@ -486,7 +495,7 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
 
     /**
      * Parse an HTTP header.
-     * 
+     *
      * @return false after reading a blank line (which indicates that the
      * HTTP header parsing is done
      */
@@ -502,7 +511,7 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
 
             // Read new bytes if needed
             if (pos >= lastValid) {
-                if (!fill(true,false)) {//parse header 
+                if (!fill(true,false)) {//parse header
                     headerParsePos = HeaderParsePosition.HEADER_START;
                     return HeaderParseStatus.NEED_MORE_DATA;
                 }
@@ -538,7 +547,7 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
 
             // Read new bytes if needed
             if (pos >= lastValid) {
-                if (!fill(true,false)) { //parse header 
+                if (!fill(true,false)) { //parse header
                     return HeaderParseStatus.NEED_MORE_DATA;
                 }
             }
@@ -553,10 +562,11 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
                 headerData.realPos = pos;
                 headerData.lastSignificantChar = pos;
                 break;
-            } else if (!HTTP_TOKEN_CHAR[chr]) {
-                // If a non-token header is detected, skip the line and
-                // ignore the header
+            } else if (!HttpParser.isToken(chr)) {
+                // Non-token characters are illegal in header names
+                // Parsing continues so the error can be reported in context
                 headerData.lastSignificantChar = pos;
+                // skipLine() will handle the error
                 return skipLine();
             }
 
@@ -585,7 +595,7 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
                 while (true) {
                     // Read new bytes if needed
                     if (pos >= lastValid) {
-                        if (!fill(true,false)) {//parse header 
+                        if (!fill(true,false)) {//parse header
                             //HEADER_VALUE_START
                             return HeaderParseStatus.NEED_MORE_DATA;
                         }
@@ -608,7 +618,7 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
 
                     // Read new bytes if needed
                     if (pos >= lastValid) {
-                        if (!fill(true,false)) {//parse header 
+                        if (!fill(true,false)) {//parse header
                             //HEADER_VALUE
                             return HeaderParseStatus.NEED_MORE_DATA;
                         }
@@ -641,7 +651,7 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
             // Read new bytes if needed
             if (pos >= lastValid) {
                 if (!fill(true,false)) {//parse header
-                    
+
                     //HEADER_MULTI_LINE
                     return HeaderParseStatus.NEED_MORE_DATA;
                 }
@@ -667,7 +677,7 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
         headerData.recycle();
         return HeaderParseStatus.HAVE_MORE_HEADERS;
     }
-    
+
     public int getParsingRequestLinePhase() {
         return parsingRequestLinePhase;
     }
@@ -696,11 +706,13 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
 
             pos++;
         }
-        if (log.isDebugEnabled()) {
-            log.debug(sm.getString("iib.invalidheader", new String(buf,
-                    headerData.start,
-                    headerData.lastSignificantChar - headerData.start + 1,
-                    DEFAULT_CHARSET)));
+        if (rejectIllegalHeaderName || log.isDebugEnabled()) {
+            String message = sm.getString("iib.invalidheader", new String(buf, headerData.start,
+                    headerData.lastSignificantChar - headerData.start + 1, DEFAULT_CHARSET));
+            if (rejectIllegalHeaderName) {
+                throw new IllegalArgumentException(message);
+            }
+            log.debug(message);
         }
 
         headerParsePos = HeaderParsePosition.HEADER_START;
@@ -749,7 +761,7 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
 
     @Override
     protected void init(SocketWrapper<NioChannel> socketWrapper,
-            AbstractEndpoint endpoint) throws IOException {
+            AbstractEndpoint<NioChannel> endpoint) throws IOException {
 
         socket = socketWrapper.getSocket();
         socketReadBufferSize =
@@ -766,7 +778,7 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
 
     /**
      * Fill the internal buffer using data from the underlying input stream.
-     * 
+     *
      * @return false if at end of stream
      */
     @Override
@@ -775,7 +787,7 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
     }
 
     protected boolean fill(boolean timeout, boolean block) throws IOException, EOFException {
-        
+
 
         boolean read = false;
 
@@ -804,7 +816,7 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
      * This class is an input buffer which will read its data from an input
      * stream.
      */
-    protected class SocketInputBuffer 
+    protected class SocketInputBuffer
         implements InputBuffer {
 
 
@@ -812,7 +824,7 @@ public class InternalNioInputBuffer extends AbstractInputBuffer<NioChannel> {
          * Read bytes into the specified chunk.
          */
         @Override
-        public int doRead(ByteChunk chunk, Request req ) 
+        public int doRead(ByteChunk chunk, Request req )
             throws IOException {
 
             if (pos >= lastValid) {

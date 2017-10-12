@@ -149,40 +149,13 @@ public class FormAuthenticator
                                 LoginConfig config)
         throws IOException {
 
-        // References to objects we will need later
-        Session session = null;
-
-        // Have we already authenticated someone?
-        Principal principal = request.getUserPrincipal();
-        String ssoId = (String) request.getNote(Constants.REQ_SSOID_NOTE);
-        if (principal != null) {
-            if (log.isDebugEnabled()) {
-                log.debug("Already authenticated '" +
-                    principal.getName() + "'");
-            }
-            // Associate the session with any existing SSO session
-            if (ssoId != null) {
-                associate(ssoId, request.getSessionInternal(true));
-            }
+        if (checkForCachedAuthentication(request, response, true)) {
             return (true);
         }
 
-        // Is there an SSO session against which we can try to reauthenticate?
-        if (ssoId != null) {
-            if (log.isDebugEnabled()) {
-                log.debug("SSO Id " + ssoId + " set; attempting " +
-                          "reauthentication");
-            }
-            // Try to reauthenticate using data cached by SSO.  If this fails,
-            // either the original SSO logon was of DIGEST or SSL (which
-            // we can't reauthenticate ourselves because there is no
-            // cached username and password), or the realm denied
-            // the user's reauthentication for some reason.
-            // In either case we have to prompt the user for a logon */
-            if (reauthenticateFromSSO(ssoId, request)) {
-                return true;
-            }
-        }
+        // References to objects we will need later
+        Session session = null;
+        Principal principal = null;
 
         // Have we authenticated this user before but have caching disabled?
         if (!cache) {
@@ -263,6 +236,20 @@ public class FormAuthenticator
 
         // No -- Save this request and redirect to the form login page
         if (!loginAction) {
+            // If this request was to the root of the context without a trailing
+            // '/', need to redirect to add it else the submit of the login form
+            // may not go to the correct web application
+            if (request.getServletPath().length() == 0 && request.getPathInfo() == null) {
+                StringBuilder location = new StringBuilder(requestURI);
+                location.append('/');
+                if (request.getQueryString() != null) {
+                    location.append('?');
+                    location.append(request.getQueryString());
+                }
+                response.sendRedirect(response.encodeRedirectURL(location.toString()));
+                return false;
+            }
+
             session = request.getSessionInternal(true);
             if (log.isDebugEnabled()) {
                 log.debug("Save request in session '" + session.getIdInternal() + "'");
@@ -419,9 +406,9 @@ public class FormAuthenticator
         RequestDispatcher disp =
             context.getServletContext().getRequestDispatcher(loginPage);
         try {
-            if (context.fireRequestInitEvent(request)) {
+            if (context.fireRequestInitEvent(request.getRequest())) {
                 disp.forward(request.getRequest(), response);
-                context.fireRequestDestroyEvent(request);
+                context.fireRequestDestroyEvent(request.getRequest());
             }
         } catch (Throwable t) {
             ExceptionUtils.handleThrowable(t);
@@ -463,12 +450,11 @@ public class FormAuthenticator
         }
 
         RequestDispatcher disp =
-            context.getServletContext().getRequestDispatcher
-            (config.getErrorPage());
+                context.getServletContext().getRequestDispatcher(config.getErrorPage());
         try {
-            if (context.fireRequestInitEvent(request)) {
+            if (context.fireRequestInitEvent(request.getRequest())) {
                 disp.forward(request.getRequest(), response);
-                context.fireRequestDestroyEvent(request);
+                context.fireRequestDestroyEvent(request.getRequest());
             }
         } catch (Throwable t) {
             ExceptionUtils.handleThrowable(t);
@@ -557,7 +543,7 @@ public class FormAuthenticator
         String method = saved.getMethod();
         MimeHeaders rmh = request.getCoyoteRequest().getMimeHeaders();
         rmh.recycle();
-        boolean cachable = "GET".equalsIgnoreCase(method) ||
+        boolean cacheable = "GET".equalsIgnoreCase(method) ||
                            "HEAD".equalsIgnoreCase(method);
         Iterator<String> names = saved.getHeaderNames();
         while (names.hasNext()) {
@@ -566,7 +552,7 @@ public class FormAuthenticator
             // Assuming that it can quietly recover from an unexpected 412.
             // BZ 43687
             if(!("If-Modified-Since".equalsIgnoreCase(name) ||
-                 (cachable && "If-None-Match".equalsIgnoreCase(name)))) {
+                 (cacheable && "If-None-Match".equalsIgnoreCase(name)))) {
                 Iterator<String> values = saved.getHeaderValues(name);
                 while (values.hasNext()) {
                     rmh.addValue(name).setString(values.next());

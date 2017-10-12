@@ -20,20 +20,17 @@ package org.apache.tomcat.util.bcel.classfile;
 import java.io.DataInput;
 import java.io.IOException;
 
-import org.apache.tomcat.util.bcel.Constants;
+import org.apache.tomcat.util.bcel.Const;
 
-/** 
- * This class is derived from the abstract 
- * <A HREF="org.apache.tomcat.util.bcel.classfile.Constant.html">Constant</A> class 
+/**
+ * This class is derived from the abstract {@link Constant}
  * and represents a reference to a (external) class.
  *
- * @author  <A HREF="mailto:m.dahm@gmx.de">M. Dahm</A>
  * @see     Constant
  */
 public final class ConstantClass extends Constant {
 
-    private static final long serialVersionUID = -6603658849582876642L;
-    private int name_index; // Identical to ConstantString except for the name
+    private final int name_index; // Identical to ConstantString except for the name
 
 
     /**
@@ -42,34 +39,16 @@ public final class ConstantClass extends Constant {
      * @param file Input stream
      * @throws IOException
      */
-    ConstantClass(DataInput file) throws IOException {
-        this(file.readUnsignedShort());
+    ConstantClass(final DataInput file) throws IOException {
+        super(Const.CONSTANT_Class);
+        this.name_index = file.readUnsignedShort();
     }
 
 
     /**
-     * @param name_index Name index in constant pool.  Should refer to a
-     * ConstantUtf8.
-     */
-    public ConstantClass(int name_index) {
-        super(Constants.CONSTANT_Class);
-        this.name_index = name_index;
-    }
-
-
-    /** 
      * @return Name index in constant pool of class name.
      */
     public final int getNameIndex() {
         return name_index;
-    }
-
-
-    /**
-     * @return String representation.
-     */
-    @Override
-    public final String toString() {
-        return super.toString() + "(name_index = " + name_index + ")";
     }
 }

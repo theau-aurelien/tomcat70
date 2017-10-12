@@ -50,7 +50,7 @@ import org.apache.tomcat.util.modeler.modules.ModelerSource;
    - double check the interfaces 
    - start removing the use of the experimental methods in tomcat, then remove
      the methods ( before 1.1 final )
-   - is the security enough to prevent Registry beeing used to avoid the permission
+   - is the security enough to prevent Registry being used to avoid the permission
     checks in the mbean server ?
 */ 
 
@@ -90,7 +90,7 @@ public class Registry implements RegistryMBean, MBeanRegistration  {
      */
     private static Registry registry = null;
 
-    // Per registy fields
+    // Per registry fields
     
     /**
      * The <code>MBeanServer</code> instance that we will use to register
@@ -372,7 +372,7 @@ public class Registry implements RegistryMBean, MBeanRegistration  {
             ids.put( domain, id); 
         }
         int code=id[0]++;
-        domainTable.put( name, new Integer( code ));
+        domainTable.put( name, Integer.valueOf( code ));
         return code;
     }
     
@@ -627,10 +627,10 @@ public class Registry implements RegistryMBean, MBeanRegistration  {
             }
         } else if( "java.lang.Integer".equals( type ) ||
                 "int".equals( type )) {
-            objValue=new Integer( value );
+            objValue=Integer.valueOf( value );
         } else if( "java.lang.Long".equals( type ) ||
                 "long".equals( type )) {
-            objValue=new Long( value );
+            objValue=Long.valueOf( value );
         } else if( "java.lang.Boolean".equals( type ) ||
                 "boolean".equals( type )) {
             objValue=Boolean.valueOf( value );

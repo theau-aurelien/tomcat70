@@ -56,6 +56,7 @@ import org.apache.catalina.startup.ExpandWar;
 import org.apache.catalina.util.ContextName;
 import org.apache.catalina.util.RequestUtil;
 import org.apache.catalina.util.ServerInfo;
+import org.apache.tomcat.util.Diagnostics;
 import org.apache.tomcat.util.ExceptionUtils;
 import org.apache.tomcat.util.modeler.Registry;
 import org.apache.tomcat.util.res.StringManager;
@@ -109,6 +110,7 @@ import org.apache.tomcat.util.res.StringManager;
  *     context path <code>/xxx</code> for this virtual host.</li>
  * <li><b>/stop?path=/xxx</b> - Stop the web application attached to
  *     context path <code>/xxx</code> for this virtual host.</li>
+ * <li><b>/threaddump</b> - Write a JVM thread dump.</li>
  * <li><b>/undeploy?path=/xxx</b> - Shutdown and remove the web application
  *     attached to context path <code>/xxx</code> for this virtual host,
  *     and remove the underlying WAR file or document base directory.
@@ -116,6 +118,7 @@ import org.apache.tomcat.util.res.StringManager;
  *     base is stored in the <code>appBase</code> directory of this host,
  *     typically as a result of being placed there via the <code>/deploy</code>
  *     command.</li>
+ * <li><b>/vminfo</b> - Write some VM info.</li>
  * </ul>
  * <p>Use <code>path=/</code> for the ROOT context.</p>
  * <p>The syntax of the URL for a web application archive must conform to one
@@ -125,15 +128,6 @@ import org.apache.tomcat.util.res.StringManager;
  *     path of a directory that contains the unpacked version of a web
  *     application.  This directory will be attached to the context path you
  *     specify without any changes.</li>
- * <li><b>jar:file:/absolute/path/to/a/warfile.war!/</b> - You can specify a
- *     URL to a local web application archive file.  The syntax must conform to
- *     the rules specified by the <code>JarURLConnection</code> class for a
- *     reference to an entire JAR file.</li>
- * <li><b>jar:http://hostname:port/path/to/a/warfile.war!/</b> - You can specify
- *     a URL to a remote (HTTP-accessible) web application archive file.  The
- *     syntax must conform to the rules specified by the
- *     <code>JarURLConnection</code> class for a reference to an entire
- *     JAR file.</li>
  * </ul>
  * <p>
  * <b>NOTE</b> - Attempting to reload or remove the application containing
@@ -162,8 +156,7 @@ public class ManagerServlet extends HttpServlet implements ContainerServlet {
         if (lastAccessAtStart == null) {
             LAST_ACCESS_AT_START = Globals.STRICT_SERVLET_COMPLIANCE;
         } else {
-            LAST_ACCESS_AT_START =
-                Boolean.valueOf(lastAccessAtStart).booleanValue();
+            LAST_ACCESS_AT_START = Boolean.parseBoolean(lastAccessAtStart);
         }
     }
 
@@ -394,6 +387,10 @@ public class ManagerServlet extends HttpServlet implements ContainerServlet {
             undeploy(writer, cn, smClient);
         } else if (command.equals("/findleaks")) {
             findleaks(statusLine, writer, smClient);
+        } else if (command.equals("/vminfo")) {
+            vmInfo(writer, smClient, request.getLocales());
+        } else if (command.equals("/threaddump")) {
+            threadDump(writer, smClient, request.getLocales());
         } else {
             writer.println(smClient.getString("managerServlet.unknownCommand",
                     command));
@@ -562,8 +559,31 @@ public class ManagerServlet extends HttpServlet implements ContainerServlet {
             writer.println(smClient.getString("managerServlet.findleaksNone"));
         }
     }
-    
-    
+
+
+    /**
+     * Write some VM info
+     *
+     * @param writer
+     */
+    protected void vmInfo(PrintWriter writer, StringManager smClient,
+            Enumeration<Locale> requestedLocales) {
+        writer.println(smClient.getString("managerServlet.vminfo"));
+        writer.print(Diagnostics.getVMInfo(requestedLocales));
+    }
+
+    /**
+     * Write a JVM thread dump
+     *
+     * @param writer
+     */
+    protected void threadDump(PrintWriter writer, StringManager smClient,
+            Enumeration<Locale> requestedLocales) {
+        writer.println(smClient.getString("managerServlet.threaddump"));
+        writer.print(Diagnostics.getThreadDump(requestedLocales));
+    }
+
+
     /**
      * Store server configuration.
      * 
@@ -1150,7 +1170,7 @@ public class ManagerServlet extends HttpServlet implements ContainerServlet {
             }
             int maxCount = 60;
             int histoInterval = 1;
-            int maxInactiveInterval = manager.getMaxInactiveInterval()/60;
+            int maxInactiveInterval = context.getSessionTimeout();
             if (maxInactiveInterval > 0) {
                 histoInterval = maxInactiveInterval / maxCount;
                 if (histoInterval * maxCount < maxInactiveInterval)
@@ -1167,7 +1187,7 @@ public class ManagerServlet extends HttpServlet implements ContainerServlet {
                     "managerServlet.sessiondefaultmax",
                     "" + maxInactiveInterval));
             Session [] sessions = manager.findSessions();
-            int [] timeout = new int[maxCount];
+            int[] timeout = new int[maxCount + 1];
             int notimeout = 0;
             int expired = 0;
             long now = System.currentTimeMillis();
@@ -1186,7 +1206,7 @@ public class ManagerServlet extends HttpServlet implements ContainerServlet {
                 if (time < 0)
                     notimeout++;
                 else if (time >= maxCount)
-                    timeout[maxCount-1]++;
+                    timeout[maxCount]++;
                 else
                     timeout[time]++;
             }
@@ -1194,18 +1214,19 @@ public class ManagerServlet extends HttpServlet implements ContainerServlet {
                 writer.println(smClient.getString(
                         "managerServlet.sessiontimeout",
                         "<" + histoInterval, "" + timeout[0]));
-            for (int i = 1; i < maxCount-1; i++) {
+            for (int i = 1; i < maxCount; i++) {
                 if (timeout[i] > 0)
                     writer.println(smClient.getString(
                             "managerServlet.sessiontimeout",
                             "" + (i)*histoInterval + " - <" + (i+1)*histoInterval,
                             "" + timeout[i]));
             }
-            if (timeout[maxCount-1] > 0)
+            if (timeout[maxCount] > 0) {
                 writer.println(smClient.getString(
                         "managerServlet.sessiontimeout",
                         ">=" + maxCount*histoInterval,
-                        "" + timeout[maxCount-1]));
+                        "" + timeout[maxCount]));
+            }
             if (notimeout > 0)
                 writer.println(smClient.getString(
                         "managerServlet.sessiontimeout.unlimited",
@@ -1213,7 +1234,7 @@ public class ManagerServlet extends HttpServlet implements ContainerServlet {
             if (idle >= 0)
                 writer.println(smClient.getString(
                         "managerServlet.sessiontimeout.expired",
-                        "" + idle,"" + expired));
+                        ">" + idle,"" + expired));
         } catch (Throwable t) {
             ExceptionUtils.handleThrowable(t);
             log("ManagerServlet.sessions[" + displayPath + "]", t);

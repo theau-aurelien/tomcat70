@@ -28,6 +28,10 @@ import java.security.KeyManagementException;
 import java.security.KeyStore;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Iterator;
+import java.util.List;
 
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.KeyManagerFactory;
@@ -46,13 +50,29 @@ import javax.servlet.http.HttpServletResponse;
 import org.apache.catalina.Context;
 import org.apache.catalina.authenticator.SSLAuthenticator;
 import org.apache.catalina.connector.Connector;
+import org.apache.catalina.core.AprLifecycleListener;
 import org.apache.catalina.deploy.LoginConfig;
 import org.apache.catalina.deploy.SecurityCollection;
 import org.apache.catalina.deploy.SecurityConstraint;
 import org.apache.catalina.startup.TestTomcat.MapRealm;
 import org.apache.catalina.startup.Tomcat;
+import org.apache.tomcat.jni.SSL;
 
 public final class TesterSupport {
+
+    public static final String RESOURCE_PATH = "org/apache/tomcat/util/net/";
+    public static final String CA_ALIAS = "ca";
+    public static final String CA_JKS = RESOURCE_PATH + CA_ALIAS + ".jks";
+    public static final String CLIENT_ALIAS = "user1";
+    public static final String CLIENT_JKS = RESOURCE_PATH + CLIENT_ALIAS + ".jks";
+    public static final String LOCALHOST_JKS = RESOURCE_PATH + "localhost.jks";
+    public static final String LOCALHOST_KEYPASS_JKS = RESOURCE_PATH + "localhost-copy1.jks";
+    public static final String JKS_PASS = "changeit";
+    public static final String JKS_KEY_PASS = "tomcatpass";
+    public static final String LOCALHOST_CERT_PEM = RESOURCE_PATH + "localhost-cert.pem";
+    public static final String LOCALHOST_KEY_PEM = RESOURCE_PATH + "localhost-key.pem";
+
+    public static final String ROLE = "testrole";
 
     protected static final boolean RFC_5746_SUPPORTED;
 
@@ -79,7 +99,7 @@ public final class TesterSupport {
     }
 
     public static void initSsl(Tomcat tomcat) {
-        initSsl(tomcat, "localhost.jks", null, null);
+        initSsl(tomcat, LOCALHOST_JKS, null, null);
     }
 
     protected static void initSsl(Tomcat tomcat, String keystore,
@@ -91,15 +111,11 @@ public final class TesterSupport {
         if (protocol.indexOf("Apr") == -1) {
             Connector connector = tomcat.getConnector();
             connector.setProperty("sslProtocol", "tls");
-            
-            java.net.URL keyStoreUrl =
-                    cl.getResource("org/apache/tomcat/util/net/" + keystore);
+            java.net.URL keyStoreUrl = cl.getResource(keystore);
             File keystoreFile = toFile(keyStoreUrl);
             connector.setAttribute("keystoreFile",
                     keystoreFile.getAbsolutePath());
-            
-            java.net.URL truststoreUrl =
-                    cl.getResource("org/apache/tomcat/util/net/ca.jks");
+            java.net.URL truststoreUrl = cl.getResource(CA_JKS);
             File truststoreFile = toFile(truststoreUrl);
             connector.setAttribute("truststoreFile",
                     truststoreFile.getAbsolutePath());
@@ -111,20 +127,28 @@ public final class TesterSupport {
                 connector.setAttribute("keyPass", keyPass);
             }
         } else {
-            java.net.URL keyStoreUrl =
-                    cl.getResource("org/apache/tomcat/util/net/localhost-cert.pem");
+            java.net.URL keyStoreUrl = cl.getResource(LOCALHOST_CERT_PEM);
             File keystoreFile = toFile(keyStoreUrl);
             tomcat.getConnector().setAttribute("SSLCertificateFile",
                     keystoreFile.getAbsolutePath());
             
-            java.net.URL sslCertificateKeyUrl =
-                    cl.getResource("org/apache/tomcat/util/net/localhost-key.pem");
+            java.net.URL sslCertificateKeyUrl = cl.getResource(LOCALHOST_KEY_PEM);
             File sslCertificateKeyFile = toFile(sslCertificateKeyUrl);
             tomcat.getConnector().setAttribute("SSLCertificateKeyFile",
                     sslCertificateKeyFile.getAbsolutePath());
         }
         tomcat.getConnector().setSecure(true);
         tomcat.getConnector().setProperty("SSLEnabled", "true");
+        // OpenSSL before 1.0.1 only supports TLSv1.
+        // Our default SSLProtocol setting "all" includes unsupported TLSv1.1 and 1.2
+        // and would produce an error during init.
+        // Furthermore old Java 6 uses SSLv2Hello which OpenSSL only
+        // supports if we choose multiple protocols.
+        // Trigger loading of the native library and choose old protocol
+        // if we use old OpenSSL.
+        if (AprLifecycleListener.isAprAvailable() && SSL.version() < 0x10001000L) {
+            tomcat.getConnector().setProperty("SSLProtocol", Constants.SSL_PROTO_TLSv1 + "+" + Constants.SSL_PROTO_SSLv3);
+        }
     }
 
     private static File toFile(java.net.URL url) {
@@ -138,27 +162,27 @@ public final class TesterSupport {
     protected static KeyManager[] getUser1KeyManagers() throws Exception {
         KeyManagerFactory kmf = KeyManagerFactory.getInstance(
                 KeyManagerFactory.getDefaultAlgorithm());
-        kmf.init(getKeyStore("org/apache/tomcat/util/net/user1.jks"),
-                "changeit".toCharArray());
+        kmf.init(getKeyStore(CLIENT_JKS), JKS_PASS.toCharArray());
         return kmf.getKeyManagers();
     }
 
     protected static TrustManager[] getTrustManagers() throws Exception {
         TrustManagerFactory tmf = TrustManagerFactory.getInstance(
                 TrustManagerFactory.getDefaultAlgorithm());
-        tmf.init(getKeyStore("org/apache/tomcat/util/net/ca.jks"));
+        tmf.init(getKeyStore(CA_JKS));
         return tmf.getTrustManagers();
     }
 
 
     protected static void configureClientSsl() {
         try {
-            SSLContext sc = SSLContext.getInstance("SSL");
+            System.setProperty("https.protocols", "TLSv1");
+            SSLContext sc = SSLContext.getInstance("TLS");
             sc.init(TesterSupport.getUser1KeyManagers(),
                     TesterSupport.getTrustManagers(),
                     null);
             javax.net.ssl.HttpsURLConnection.setDefaultSSLSocketFactory(
-                    new TesterSSLSocketFactory(sc.getSocketFactory()));
+                    new NoSSLv2SocketFactory(sc.getSocketFactory()));
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -172,7 +196,7 @@ public final class TesterSupport {
         InputStream is = null;
         try {
             is = new FileInputStream(keystoreFile);
-            ks.load(is, "changeit".toCharArray());
+            ks.load(is, JKS_PASS.toCharArray());
         } finally {
             if (is != null) {
                 try {
@@ -198,9 +222,8 @@ public final class TesterSupport {
         TesterSupport.initSsl(tomcat);
 
         // Need a web application with a protected and unprotected URL
-        // Must have a real docBase - just use temp
-        Context ctx =
-            tomcat.addContext("", System.getProperty("java.io.tmpdir"));
+        // No file system docBase required
+        Context ctx = tomcat.addContext("", null);
 
         Tomcat.addServlet(ctx, "simple", new SimpleServlet());
         ctx.addServletMapping("/unprotected", "simple");
@@ -210,14 +233,24 @@ public final class TesterSupport {
         SecurityCollection collection = new SecurityCollection();
         collection.addPattern("/protected");
         SecurityConstraint sc = new SecurityConstraint();
-        sc.addAuthRole("testrole");
+        sc.addAuthRole(ROLE);
         sc.addCollection(collection);
         ctx.addConstraint(sc);
 
         // Configure the Realm
         MapRealm realm = new MapRealm();
-        realm.addUser("CN=user1, C=US", "not used");
-        realm.addUserRole("CN=user1, C=US", "testrole");
+
+        String cn = "NOTFOUND";
+        try {
+            KeyStore ks = getKeyStore(CLIENT_JKS);
+            X509Certificate cert = (X509Certificate)ks.getCertificate(CLIENT_ALIAS);
+            cn = cert.getSubjectDN().getName();
+        } catch (Exception ex) {
+            // Ignore
+        }
+
+        realm.addUser(cn, "not used");
+        realm.addUserRole(cn, ROLE);
         ctx.setRealm(realm);
 
         // Configure the authenticator
@@ -238,6 +271,9 @@ public final class TesterSupport {
                 throws ServletException, IOException {
             resp.setContentType("text/plain");
             resp.getWriter().print("OK");
+            if (req.isUserInRole(ROLE)) {
+                resp.getWriter().print("-" + ROLE);
+            }
         }
 
         @Override
@@ -287,16 +323,15 @@ public final class TesterSupport {
             // NOOP - Trust everything
         }
     }
+    
+    public static class NoSSLv2SocketFactory extends SSLSocketFactory {
 
-    private static class TesterSSLSocketFactory
-            extends SSLSocketFactory {
-
-        private SSLSocketFactory factory;
-
-        public TesterSSLSocketFactory(SSLSocketFactory factory) {
+        SSLSocketFactory factory;
+        
+        public NoSSLv2SocketFactory(SSLSocketFactory factory) {
             this.factory = factory;
         }
-
+        
         @Override
         public String[] getDefaultCipherSuites() {
             return factory.getDefaultCipherSuites();
@@ -308,46 +343,44 @@ public final class TesterSupport {
         }
 
         @Override
-        public Socket createSocket(Socket socket, String s, int i, boolean flag)
+        public Socket createSocket(Socket s, String host, int port, boolean autoClose) throws IOException {
+            return filterProtocols((SSLSocket) factory.createSocket(s, host, port, autoClose));
+        }
+
+        @Override
+        public Socket createSocket(String host, int port) throws IOException, UnknownHostException {
+            return filterProtocols((SSLSocket) factory.createSocket(host, port));
+        }
+
+        @Override
+        public Socket createSocket(InetAddress host, int port) throws IOException {
+            return filterProtocols((SSLSocket) factory.createSocket(host, port));
+        }
+
+        @Override
+        public Socket createSocket(String host, int port, InetAddress localHost, int localPort)
+                throws IOException, UnknownHostException {
+            return filterProtocols((SSLSocket) factory.createSocket(host, port, localHost, localPort));
+        }
+
+        @Override
+        public Socket createSocket(InetAddress address, int port, InetAddress localAddress, int localPort)
                 throws IOException {
-            SSLSocket result =
-                (SSLSocket) factory.createSocket(socket, s, i, flag);
-            result.setEnabledProtocols(new String[] { "SSLv3" } );
-            return result;
+            return filterProtocols((SSLSocket) factory.createSocket(address, port, localAddress, localPort));
         }
 
-        @Override
-        public Socket createSocket(String s, int i) throws IOException,
-                UnknownHostException {
-            SSLSocket result = (SSLSocket) factory.createSocket(s, i);
-            result.setEnabledProtocols(new String[] { "SSLv3" } );
-            return result;
-        }
-
-        @Override
-        public Socket createSocket(String s, int i, InetAddress inetaddress,
-                int j) throws IOException, UnknownHostException {
-            SSLSocket result =
-                (SSLSocket) factory.createSocket(s, i, inetaddress, j);
-            result.setEnabledProtocols(new String[] { "SSLv3" } );
-            return result;
-        }
-
-        @Override
-        public Socket createSocket(InetAddress inetaddress, int i)
-                throws IOException {
-            SSLSocket result = (SSLSocket) factory.createSocket(inetaddress, i);
-            result.setEnabledProtocols(new String[] { "SSLv3" } );
-            return result;
-        }
-
-        @Override
-        public Socket createSocket(InetAddress inetaddress, int i,
-                InetAddress inetaddress1, int j) throws IOException {
-            SSLSocket result = (SSLSocket) factory.createSocket(
-                    inetaddress, i, inetaddress1, j);
-            result.setEnabledProtocols(new String[] { "SSLv3" } );
-            return result;
+        private SSLSocket filterProtocols(SSLSocket socket) {
+            List<String> protocols = new ArrayList<String>();
+            protocols.addAll(Arrays.asList(socket.getSupportedProtocols()));
+            Iterator<String> protocolsIter = protocols.iterator();
+            while (protocolsIter.hasNext()) {
+                String protocol = protocolsIter.next();
+                if (protocol.contains("SSLv2")) {
+                    protocolsIter.remove();
+                }
+            }
+            socket.setEnabledProtocols(protocols.toArray(new String[protocols.size()]));
+            return socket;
         }
     }
 }

@@ -77,6 +77,11 @@ public class BackupManager extends ClusterManagerBase
     private boolean terminateOnStartFailure = false;
 
     /**
+     * The timeout for a ping message in replication map.
+     */
+    private long accessTimeout = 5000;
+
+    /**
      * Constructor, just calls super()
      *
      */
@@ -172,6 +177,7 @@ public class BackupManager extends ClusterManagerBase
                             cluster.getChannel(), rpcTimeout, getMapName(),
                             getClassLoaders(), terminateOnStartFailure);
             map.setChannelSendOptions(mapSendOptions);
+            map.setAccessTimeout(accessTimeout);
             this.sessions = map;
         }  catch ( Exception x ) {
             log.error(sm.getString("backupManager.startUnable", getName()),x);
@@ -215,11 +221,6 @@ public class BackupManager extends ClusterManagerBase
     }
 
     @Override
-    public void setDistributable(boolean dist) {
-        this.distributable = dist;
-    }
-
-    @Override
     public void setName(String name) {
         this.name = name;
     }
@@ -248,6 +249,14 @@ public class BackupManager extends ClusterManagerBase
         return terminateOnStartFailure;
     }
 
+    public long getAccessTimeout() {
+        return accessTimeout;
+    }
+
+    public void setAccessTimeout(long accessTimeout) {
+        this.accessTimeout = accessTimeout;
+    }
+
     @Override
     public String[] getInvalidatedSessions() {
         return new String[0];
@@ -261,6 +270,7 @@ public class BackupManager extends ClusterManagerBase
         result.mapSendOptions = mapSendOptions;
         result.rpcTimeout = rpcTimeout;
         result.terminateOnStartFailure = terminateOnStartFailure;
+        result.accessTimeout = accessTimeout;
         return result;
     }
 

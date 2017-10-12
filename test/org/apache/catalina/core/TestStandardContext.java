@@ -20,6 +20,7 @@ package org.apache.catalina.core;
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.Arrays;
 import java.util.Set;
 
 import javax.servlet.Filter;
@@ -40,6 +41,8 @@ import javax.servlet.annotation.ServletSecurity.TransportGuarantee;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+
+import org.hamcrest.CoreMatchers;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -67,6 +70,7 @@ import org.apache.catalina.startup.TestTomcat.MapRealm;
 import org.apache.catalina.startup.Tomcat;
 import org.apache.catalina.startup.TomcatBaseTest;
 import org.apache.tomcat.util.buf.ByteChunk;
+
 
 public class TestStandardContext extends TomcatBaseTest {
 
@@ -414,9 +418,8 @@ public class TestStandardContext extends TomcatBaseTest {
         // Set up a container
         Tomcat tomcat = getTomcatInstance();
 
-        // Must have a real docBase - just use temp
-        File docBase = new File(System.getProperty("java.io.tmpdir"));
-        Context ctx = tomcat.addContext("", docBase.getAbsolutePath());
+        // No file system docBase required
+        Context ctx = tomcat.addContext("", null);
 
         // Setup realm
         MapRealm realm = new MapRealm();
@@ -497,9 +500,8 @@ public class TestStandardContext extends TomcatBaseTest {
         // Set up a container
         Tomcat tomcat = getTomcatInstance();
 
-        // Must have a real docBase - just use temp
-        File docBase = new File(System.getProperty("java.io.tmpdir"));
-        Context ctx = tomcat.addContext("", docBase.getAbsolutePath());
+        // No file system docBase required
+        Context ctx = tomcat.addContext("", null);
 
         // Add ServletContainerInitializer
         Bug51376SCI sci = new Bug51376SCI(loadOnStartUp);
@@ -804,7 +806,8 @@ public class TestStandardContext extends TomcatBaseTest {
         ctx.stop();
 
         String log = TesterTldListener.getLog();
-        Assert.assertTrue(log, log.contains("PASS"));
+        Assert.assertTrue(log, log.contains("PASS-01"));
+        Assert.assertTrue(log, log.contains("PASS-02"));
         Assert.assertFalse(log, log.contains("FAIL"));
     }
 
@@ -858,5 +861,32 @@ public class TestStandardContext extends TomcatBaseTest {
             throw new ServletException("failing on purpose");
         }
 
+    }
+
+    @Test
+    public void testBug56903() {
+        Context context = new StandardContext();
+
+        context.setResourceOnlyServlets("a,b,c");
+        Assert.assertThat(Arrays.asList(context.getResourceOnlyServlets().split(",")),
+                CoreMatchers.hasItems("a", "b", "c"));
+    }
+
+    @Test
+    public void testSetPath() {
+        testSetPath("", "");
+        testSetPath("/foo", "/foo");
+        testSetPath("/foo/bar", "/foo/bar");
+        testSetPath(null, "");
+        testSetPath("/", "");
+        testSetPath("foo", "/foo");
+        testSetPath("/foo/bar/", "/foo/bar");
+        testSetPath("foo/bar/", "/foo/bar");
+    }
+
+    private void testSetPath(String value, String expectedValue) {
+        StandardContext context = new StandardContext();
+        context.setPath(value);
+        Assert.assertEquals(expectedValue, context.getPath());
     }
 }

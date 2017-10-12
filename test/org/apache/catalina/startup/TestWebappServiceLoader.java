@@ -25,7 +25,6 @@ import org.junit.Test;
 
 import org.apache.catalina.core.StandardContext;
 
-
 public class TestWebappServiceLoader extends TomcatBaseTest {
     @Test
     public void testWebapp() throws Exception {
@@ -36,7 +35,7 @@ public class TestWebappServiceLoader extends TomcatBaseTest {
         tomcat.start();
 
         WebappServiceLoader<ServletContainerInitializer> loader =
-                new WebappServiceLoader<ServletContainerInitializer>(ctxt.getServletContext(), null);
+                new WebappServiceLoader<ServletContainerInitializer>(ctxt);
         @SuppressWarnings("unused")
         Collection<ServletContainerInitializer> initializers = loader.load(ServletContainerInitializer.class);
     }

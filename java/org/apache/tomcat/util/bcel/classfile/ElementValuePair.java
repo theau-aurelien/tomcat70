@@ -17,47 +17,39 @@
  */
 package org.apache.tomcat.util.bcel.classfile;
 
-import java.io.DataOutputStream;
+import java.io.DataInput;
 import java.io.IOException;
 
-import org.apache.tomcat.util.bcel.Constants;
+import org.apache.tomcat.util.bcel.Const;
 
 /**
  * an annotation's element value pair
- * 
- * @author <A HREF="mailto:dbrosius@qis.net">D. Brosius</A>
+ *
  * @since 6.0
  */
 public class ElementValuePair
 {
-    private ElementValue elementValue;
+    private final ElementValue elementValue;
 
-    private ConstantPool constantPool;
+    private final ConstantPool constantPool;
 
-    private int elementNameIndex;
+    private final int elementNameIndex;
 
-    public ElementValuePair(int elementNameIndex, ElementValue elementValue,
-            ConstantPool constantPool)
-    {
-        this.elementValue = elementValue;
-        this.elementNameIndex = elementNameIndex;
+    ElementValuePair(final DataInput file, final ConstantPool constantPool) throws IOException {
         this.constantPool = constantPool;
+        this.elementNameIndex = file.readUnsignedShort();
+        this.elementValue = ElementValue.readElementValue(file, constantPool);
     }
 
     public String getNameString()
     {
-        ConstantUtf8 c = (ConstantUtf8) constantPool.getConstant(
-                elementNameIndex, Constants.CONSTANT_Utf8);
+        final ConstantUtf8 c = (ConstantUtf8) constantPool.getConstant(
+                elementNameIndex, Const.CONSTANT_Utf8);
         return c.getBytes();
     }
 
     public final ElementValue getValue()
     {
         return elementValue;
-    }
-    
-    protected void dump(DataOutputStream dos) throws IOException {
-        dos.writeShort(elementNameIndex); // u2 name of the element
-        elementValue.dump(dos);
     }
 }

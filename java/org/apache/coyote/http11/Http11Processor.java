@@ -20,6 +20,7 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.Socket;
+import java.util.Set;
 
 import org.apache.coyote.ActionCode;
 import org.apache.coyote.http11.filters.BufferedInputFilter;
@@ -49,18 +50,19 @@ public class Http11Processor extends AbstractHttp11Processor<Socket> {
    // ------------------------------------------------------------ Constructor
 
 
-    public Http11Processor(int headerBufferSize, JIoEndpoint endpoint,
-            int maxTrailerSize, int maxExtensionSize) {
+    public Http11Processor(int headerBufferSize, boolean rejectIllegalHeaderName,
+            JIoEndpoint endpoint, int maxTrailerSize, Set<String> allowedTrailerHeaders,
+            int maxExtensionSize, int maxSwallowSize) {
 
         super(endpoint);
         
-        inputBuffer = new InternalInputBuffer(request, headerBufferSize);
+        inputBuffer = new InternalInputBuffer(request, headerBufferSize, rejectIllegalHeaderName);
         request.setInputBuffer(inputBuffer);
 
         outputBuffer = new InternalOutputBuffer(response, headerBufferSize);
         response.setOutputBuffer(outputBuffer);
 
-        initializeFilters(maxTrailerSize, maxExtensionSize);
+        initializeFilters(maxTrailerSize, allowedTrailerHeaders, maxExtensionSize, maxSwallowSize);
     }
 
 
@@ -120,7 +122,7 @@ public class Http11Processor extends AbstractHttp11Processor<Socket> {
         // Only calculate a thread ratio when both are >0 to ensure we get a
         // sensible result
         int maxThreads, threadsBusy;
-        if ((maxThreads = endpoint.getMaxThreads()) > 0
+        if ((maxThreads = endpoint.getMaxThreadsWithExecutor()) > 0
                 && (threadsBusy = endpoint.getCurrentThreadsBusy()) > 0) {
             threadRatio = (threadsBusy * 100) / maxThreads;
         }
@@ -264,6 +266,11 @@ public class Http11Processor extends AbstractHttp11Processor<Socket> {
                     if (sslO != null)
                         request.setAttribute
                             (SSLSupport.SESSION_ID_KEY, sslO);
+                    sslO = sslSupport.getProtocol();
+                    if (sslO != null) {
+                        request.setAttribute
+                            (SSLSupport.PROTOCOL_VERSION_KEY, sslO);
+                    }
                     request.setAttribute(SSLSupport.SESSION_MGR, sslSupport);
                 }
             } catch (Exception e) {

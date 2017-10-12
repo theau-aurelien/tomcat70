@@ -275,7 +275,7 @@ public class JspUtil {
 
     /**
      * Convert a String value to 'boolean'. Besides the standard conversions
-     * done by Boolean.valueOf(s).booleanValue(), the value "yes" (ignore case)
+     * done by Boolean.parseBoolean(s), the value "yes" (ignore case)
      * is also converted to 'true'. If 's' is null, then 'false' is returned.
      *
      * @param s
@@ -288,7 +288,7 @@ public class JspUtil {
             if (s.equalsIgnoreCase("yes")) {
                 b = true;
             } else {
-                b = Boolean.valueOf(s).booleanValue();
+                b = Boolean.parseBoolean(s);
             }
         }
         return b;
@@ -740,7 +740,7 @@ public class JspUtil {
 
         index = path.indexOf(WEB_INF_TAGS);
         if (index != -1) {
-            className = Constants.TAG_FILE_PACKAGE_NAME + ".web";
+            className = Constants.TAG_FILE_PACKAGE_NAME + ".web.";
             begin = index + WEB_INF_TAGS.length();
         } else {
             index = path.indexOf(META_INF_TAGS);
@@ -1003,6 +1003,13 @@ public class JspUtil {
                 break;
             }
         }
+
+        if (t == null) {
+            // Should never happen
+            throw new IllegalArgumentException("Unable to extract type from [" +
+                    type + "]");
+        }
+
         StringBuilder resultType = new StringBuilder(t);
         for (; dims > 0; dims--) {
             resultType.append("[]");

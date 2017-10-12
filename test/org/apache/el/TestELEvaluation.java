@@ -18,11 +18,9 @@
 package org.apache.el;
 
 import java.io.File;
-import java.lang.reflect.Method;
 import java.util.Date;
 
 import javax.el.ELException;
-import javax.el.FunctionMapper;
 import javax.el.ValueExpression;
 
 import static org.junit.Assert.assertEquals;
@@ -30,6 +28,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import org.junit.Assert;
 import org.junit.Test;
 
 import org.apache.el.lang.ELSupport;
@@ -104,25 +103,25 @@ public class TestELEvaluation {
         assertEquals("\\\\", evaluateExpression("\\\\"));
 
         /*
-         * LiteralExpresions can only contain ${ or #{ if escaped with \
+         * LiteralExpressions can only contain ${ or #{ if escaped with \
          * \ is not an escape character in any other circumstances including \\
          */
         assertEquals("\\", evaluateExpression("\\"));
         assertEquals("$", evaluateExpression("$"));
         assertEquals("#", evaluateExpression("#"));
-        assertEquals("$", evaluateExpression("\\$"));
-        assertEquals("#", evaluateExpression("\\#"));
-        assertEquals("\\$", evaluateExpression("\\\\$"));
-        assertEquals("\\#", evaluateExpression("\\\\#"));
+        assertEquals("\\$", evaluateExpression("\\$"));
+        assertEquals("\\#", evaluateExpression("\\#"));
+        assertEquals("\\\\$", evaluateExpression("\\\\$"));
+        assertEquals("\\\\#", evaluateExpression("\\\\#"));
         assertEquals("${", evaluateExpression("\\${"));
         assertEquals("#{", evaluateExpression("\\#{"));
         assertEquals("\\${", evaluateExpression("\\\\${"));
         assertEquals("\\#{", evaluateExpression("\\\\#{"));
 
-        // '\' is only an escape for '$' and '#'.
-        assertEquals("$", evaluateExpression("\\$"));
+        // '\' is only an escape for '${' and '#{'.
+        assertEquals("\\$", evaluateExpression("\\$"));
         assertEquals("${", evaluateExpression("\\${"));
-        assertEquals("$a", evaluateExpression("\\$a"));
+        assertEquals("\\$a", evaluateExpression("\\$a"));
         assertEquals("\\a", evaluateExpression("\\a"));
         assertEquals("\\\\", evaluateExpression("\\\\"));
     }
@@ -164,6 +163,11 @@ public class TestELEvaluation {
         assertEquals("\"\\", evaluateExpression("${\"\\\"\\\\\"}"));
     }
 
+    @Test
+    public void testMultipleEscaping() throws Exception {
+        assertEquals("''", evaluateExpression("${\"\'\'\"}"));
+    }
+
     private void compareBoth(String msg, int expected, Object o1, Object o2){
         int i1 = ELSupport.compare(o1, o2);
         int i2 = ELSupport.compare(o2, o1);
@@ -202,33 +206,64 @@ public class TestELEvaluation {
         assertNotNull(e);
     }
 
+    @Test
+    public void testEscape01() {
+        Assert.assertEquals("$${", evaluateExpression("$\\${"));
+    }
+
+    @Test
+    public void testBug49081a() {
+        Assert.assertEquals("$2", evaluateExpression("$${1+1}"));
+    }
+
+    @Test
+    public void testBug49081b() {
+        Assert.assertEquals("#2", evaluateExpression("##{1+1}"));
+    }
+
+    @Test
+    public void testBug49081c() {
+        Assert.assertEquals("#2", evaluateExpression("#${1+1}"));
+    }
+
+    @Test
+    public void testBug49081d() {
+        Assert.assertEquals("$2", evaluateExpression("$#{1+1}"));
+    }
+
+    @Test
+    public void testBug60431a() {
+        Assert.assertEquals("OK", evaluateExpression("${fn:concat('O','K')}"));
+    }
+
+    @Test
+    public void testBug60431b() {
+        Assert.assertEquals("OK", evaluateExpression("${fn:concat(fn:toArray('O','K'))}"));
+    }
+
+    @Test
+    public void testBug60431c() {
+        Assert.assertEquals("", evaluateExpression("${fn:concat()}"));
+    }
+
+    @Test
+    public void testBug60431d() {
+        Assert.assertEquals("OK", evaluateExpression("${fn:concat2('OK')}"));
+    }
+
+    @Test
+    public void testBug60431e() {
+        Assert.assertEquals("RUOK", evaluateExpression("${fn:concat2('RU', fn:toArray('O','K'))}"));
+    }
+
     // ************************************************************************
 
     private String evaluateExpression(String expression) {
         ELContextImpl ctx = new ELContextImpl();
-        ctx.setFunctionMapper(new FMapper());
+        ctx.setFunctionMapper(new TesterFunctions.FMapper());
         ExpressionFactoryImpl exprFactory = new ExpressionFactoryImpl();
         ValueExpression ve = exprFactory.createValueExpression(ctx, expression,
                 String.class);
         return (String) ve.getValue(ctx);
-    }
-
-    public static class FMapper extends FunctionMapper {
-
-        @Override
-        public Method resolveFunction(String prefix, String localName) {
-            if ("trim".equals(localName)) {
-                Method m;
-                try {
-                    m = TesterFunctions.class.getMethod("trim", String.class);
-                    return m;
-                } catch (SecurityException e) {
-                    // Ignore
-                } catch (NoSuchMethodException e) {
-                    // Ignore
-                }
-            }
-            return null;
-        }
     }
 }

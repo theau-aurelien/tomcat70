@@ -44,7 +44,7 @@ import org.apache.tomcat.util.net.SocketWrapper;
  * @author Costin Manolache
  * @author Filip Hanik
  */
-public class Http11NioProtocol extends AbstractHttp11JsseProtocol {
+public class Http11NioProtocol extends AbstractHttp11JsseProtocol<NioChannel> {
 
     private static final Log log = LogFactory.getLog(Http11NioProtocol.class);
 
@@ -147,7 +147,7 @@ public class Http11NioProtocol extends AbstractHttp11JsseProtocol {
         }
 
         @Override
-        protected AbstractProtocol getProtocol() {
+        protected AbstractProtocol<NioChannel> getProtocol() {
             return proto;
         }
 
@@ -197,7 +197,9 @@ public class Http11NioProtocol extends AbstractHttp11JsseProtocol {
                 connections.remove(socket.getSocket());
             if (processor != null) {
                 processor.recycle(true);
-                recycledProcessors.offer(processor);
+                if (!processor.isUpgrade()) {
+                    recycledProcessors.offer(processor);
+                }
             }
         }
 
@@ -218,6 +220,10 @@ public class Http11NioProtocol extends AbstractHttp11JsseProtocol {
             processor.recycle(isSocketClosing);
             recycledProcessors.offer(processor);
             if (addToPoller) {
+                // The only time this method is called with addToPoller == true
+                // is when the socket is in keep-alive so set the appropriate
+                // timeout.
+                socket.setTimeout(getProtocol().getKeepAliveTimeout());
                 socket.getSocket().getPoller().add(socket.getSocket());
             }
         }
@@ -258,8 +264,10 @@ public class Http11NioProtocol extends AbstractHttp11JsseProtocol {
         @Override
         public Http11NioProcessor createProcessor() {
             Http11NioProcessor processor = new Http11NioProcessor(
-                    proto.getMaxHttpHeaderSize(), (NioEndpoint)proto.endpoint,
-                    proto.getMaxTrailerSize(), proto.getMaxExtensionSize());
+                    proto.getMaxHttpHeaderSize(), proto.getRejectIllegalHeaderName(),
+                    (NioEndpoint)proto.endpoint, proto.getMaxTrailerSize(),
+                    proto.getAllowedTrailerHeadersAsSet(), proto.getMaxExtensionSize(),
+                    proto.getMaxSwallowSize());
             processor.setAdapter(proto.adapter);
             processor.setMaxKeepAliveRequests(proto.getMaxKeepAliveRequests());
             processor.setKeepAliveTimeout(proto.getKeepAliveTimeout());
@@ -274,6 +282,7 @@ public class Http11NioProtocol extends AbstractHttp11JsseProtocol {
             processor.setSocketBuffer(proto.getSocketBuffer());
             processor.setMaxSavePostSize(proto.getMaxSavePostSize());
             processor.setServer(proto.getServer());
+            processor.setMaxCookieCount(proto.getMaxCookieCount());
             register(processor);
             return processor;
         }

@@ -5,9 +5,9 @@
  * The ASF licenses this file to You under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with
  * the License.  You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -38,8 +38,8 @@ import org.apache.jasper.EmbeddedServletOptions;
 import org.apache.jasper.Options;
 import org.apache.jasper.compiler.JspRuntimeContext;
 import org.apache.jasper.compiler.Localizer;
+import org.apache.jasper.runtime.ExceptionUtils;
 import org.apache.jasper.security.SecurityUtil;
-import org.apache.jasper.util.ExceptionUtils;
 import org.apache.juli.logging.Log;
 import org.apache.juli.logging.LogFactory;
 import org.apache.tomcat.PeriodicEventListener;
@@ -71,8 +71,8 @@ public class JspServlet extends HttpServlet implements PeriodicEventListener {
     private ServletConfig config;
     private transient Options options;
     private transient JspRuntimeContext rctxt;
-    //jspFile for a jsp configured explicitly as a servlet, in environments where this configuration is
-    //translated into an init-param for this servlet.
+    // jspFile for a jsp configured explicitly as a servlet, in environments where this
+    // configuration is translated into an init-param for this servlet.
     private String jspFile;
 
 
@@ -81,26 +81,26 @@ public class JspServlet extends HttpServlet implements PeriodicEventListener {
      */
     @Override
     public void init(ServletConfig config) throws ServletException {
-        
+
         super.init(config);
         this.config = config;
         this.context = config.getServletContext();
-        
+
         // Initialize the JSP Runtime Context
         // Check for a custom Options implementation
-        String engineOptionsName = 
-            config.getInitParameter("engineOptionsClass");
+        String engineOptionsName = config.getInitParameter("engineOptionsClass");
+        if (Constants.IS_SECURITY_ENABLED && engineOptionsName != null) {
+            log.info(Localizer.getMessage(
+                    "jsp.info.ignoreSetting", "engineOptionsClass", engineOptionsName));
+            engineOptionsName = null;
+        }
         if (engineOptionsName != null) {
             // Instantiate the indicated Options implementation
             try {
-                ClassLoader loader = Thread.currentThread()
-                        .getContextClassLoader();
-                Class<?> engineOptionsClass =
-                    loader.loadClass(engineOptionsName);
-                Class<?>[] ctorSig =
-                    { ServletConfig.class, ServletContext.class };
-                Constructor<?> ctor =
-                    engineOptionsClass.getConstructor(ctorSig);
+                ClassLoader loader = Thread.currentThread().getContextClassLoader();
+                Class<?> engineOptionsClass = loader.loadClass(engineOptionsName);
+                Class<?>[] ctorSig = { ServletConfig.class, ServletContext.class };
+                Constructor<?> ctor = engineOptionsClass.getConstructor(ctorSig);
                 Object[] args = { config, context };
                 options = (Options) ctor.newInstance(args);
             } catch (Throwable e) {
@@ -253,7 +253,7 @@ public class JspServlet extends HttpServlet implements PeriodicEventListener {
             return (false);            // part of some other name or value
         }
         int limit = queryString.length();
-        int ampersand = queryString.indexOf("&");
+        int ampersand = queryString.indexOf('&');
         if (ampersand > 0) {
             limit = ampersand;
         }
@@ -274,19 +274,24 @@ public class JspServlet extends HttpServlet implements PeriodicEventListener {
         }
 
     }
-    
 
+
+    @SuppressWarnings("deprecation") // Use of JSP_FILE to be removed in 9.0.x
     @Override
-    public void service (HttpServletRequest request, 
+    public void service (HttpServletRequest request,
                              HttpServletResponse response)
                 throws ServletException, IOException {
         //jspFile may be configured as an init-param for this servlet instance
         String jspUri = jspFile;
 
         if (jspUri == null) {
-            // JSP specified via <jsp-file> in <servlet> declaration and supplied through
-            //custom servlet container code
-            jspUri = (String) request.getAttribute(Constants.JSP_FILE);
+            // JSP specified via <jsp-file> in <servlet> declaration and
+            // supplied through custom servlet container code
+            String jspFile = (String) request.getAttribute(Constants.JSP_FILE);
+            if (jspFile != null) {
+                jspUri = jspFile;
+                request.removeAttribute(Constants.JSP_FILE);
+            }
         }
         if (jspUri == null) {
             /*
@@ -308,7 +313,7 @@ public class JspServlet extends HttpServlet implements PeriodicEventListener {
                 }
             } else {
                 /*
-                 * Requested JSP has not been the target of a 
+                 * Requested JSP has not been the target of a
                  * RequestDispatcher.include(). Reconstruct its path from the
                  * request's getServletPath() and getPathInfo()
                  */
@@ -320,7 +325,7 @@ public class JspServlet extends HttpServlet implements PeriodicEventListener {
             }
         }
 
-        if (log.isDebugEnabled()) {    
+        if (log.isDebugEnabled()) {
             log.debug("JspEngine --> " + jspUri);
             log.debug("\t     ServletPath: " + request.getServletPath());
             log.debug("\t        PathInfo: " + request.getPathInfo());

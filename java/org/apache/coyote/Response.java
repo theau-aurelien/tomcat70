@@ -23,12 +23,13 @@ import java.util.Locale;
 
 import org.apache.tomcat.util.buf.ByteChunk;
 import org.apache.tomcat.util.http.MimeHeaders;
+import org.apache.tomcat.util.http.ResponseUtil;
 import org.apache.tomcat.util.http.parser.HttpParser;
 import org.apache.tomcat.util.http.parser.MediaType;
 
 /**
  * Response object.
- * 
+ *
  * @author James Duncan Davidson [duncan@eng.sun.com]
  * @author Jason Hunter [jch@eng.sun.com]
  * @author James Todd [gonzo@eng.sun.com]
@@ -51,37 +52,37 @@ public final class Response {
     /**
      * Status code.
      */
-    protected int status = 200;
+    int status = 200;
 
 
     /**
      * Status message.
      */
-    protected String message = null;
+    String message = null;
 
 
     /**
      * Response headers.
      */
-    protected MimeHeaders headers = new MimeHeaders();
+    MimeHeaders headers = new MimeHeaders();
 
 
     /**
      * Associated output buffer.
      */
-    protected OutputBuffer outputBuffer;
+    OutputBuffer outputBuffer;
 
 
     /**
      * Notes.
      */
-    protected Object notes[] = new Object[Constants.MAX_NOTES];
+    Object notes[] = new Object[Constants.MAX_NOTES];
 
 
     /**
      * Committed flag.
      */
-    protected boolean commited = false;
+    boolean commited = false;
 
 
     /**
@@ -93,10 +94,10 @@ public final class Response {
     /**
      * HTTP specific fields.
      */
-    protected String contentType = null;
-    protected String contentLanguage = null;
-    protected String characterEncoding = Constants.DEFAULT_CHARACTER_ENCODING;
-    protected long contentLength = -1;
+    String contentType = null;
+    String contentLanguage = null;
+    String characterEncoding = Constants.DEFAULT_CHARACTER_ENCODING;
+    long contentLength = -1;
     private Locale locale = DEFAULT_LOCALE;
 
     // General informations
@@ -106,14 +107,14 @@ public final class Response {
     /**
      * Holds request error exception.
      */
-    protected Exception errorException = null;
+    Exception errorException = null;
 
     /**
      * Has the charset been explicitly set.
      */
-    protected boolean charsetSet = false;
+    boolean charsetSet = false;
 
-    protected Request req;
+    Request req;
 
     // ------------------------------------------------------------- Properties
 
@@ -168,7 +169,7 @@ public final class Response {
 
     public void action(ActionCode actionCode, Object param) {
         if (hook != null) {
-            if( param==null ) 
+            if( param==null )
                 hook.action(actionCode, this);
             else
                 hook.action(actionCode, param);
@@ -183,10 +184,10 @@ public final class Response {
         return status;
     }
 
-    
-    /** 
-     * Set the response status 
-     */ 
+
+    /**
+     * Set the response status
+     */
     public void setStatus( int status ) {
         this.status = status;
     }
@@ -232,16 +233,16 @@ public final class Response {
     // -----------------Error State --------------------
 
 
-    /** 
+    /**
      * Set the error Exception that occurred during
      * request processing.
      */
     public void setErrorException(Exception ex) {
-    errorException = ex;
+        errorException = ex;
     }
 
 
-    /** 
+    /**
      * Get the Exception that occurred during request
      * processing.
      */
@@ -256,33 +257,16 @@ public final class Response {
 
 
     // -------------------- Methods --------------------
-    
-    
-    public void reset() 
-        throws IllegalStateException {
-        
-        // Reset the headers only if this is the main request,
-        // not for included
-        contentType = null;
-        locale = DEFAULT_LOCALE;
-        contentLanguage = null;
-        characterEncoding = Constants.DEFAULT_CHARACTER_ENCODING;
-        contentLength = -1;
-        charsetSet = false;
 
-        status = 200;
-        message = null;
-        headers.clear();
-        
-        // Force the PrintWriter to flush its data to the output
-        // stream before resetting the output stream
-        //
-        // Reset the stream
+    public void reset() throws IllegalStateException {
+
         if (commited) {
-            //String msg = sm.getString("servletOutputStreamImpl.reset.ise"); 
             throw new IllegalStateException();
         }
-        
+
+        recycle();
+
+        // Reset the stream
         action(ActionCode.RESET, this);
     }
 
@@ -326,9 +310,9 @@ public final class Response {
         headers.addValue(name).setString( value );
     }
 
-    
-    /** 
-     * Set internal fields for special header names. 
+
+    /**
+     * Set internal fields for special header names.
      * Called from set/addHeader.
      * Return true if the header is special, no need to set the header.
      */
@@ -345,13 +329,19 @@ public final class Response {
                 setContentLength( cL );
                 return true;
             } catch( NumberFormatException ex ) {
-                // Do nothing - the spec doesn't have any "throws" 
+                // Do nothing - the spec doesn't have any "throws"
                 // and the user might know what he's doing
                 return false;
             }
         }
-        if( name.equalsIgnoreCase( "Content-Language" ) ) {
-            // XXX XXX Need to construct Locale or something else
+        if (name.equalsIgnoreCase("Content-Language")) {
+            Locale locale = ResponseUtil.getLocaleFromLanguageHeader(value);
+            if (locale == null) {
+                return false;
+            } else {
+                setLocale(locale);
+                return true;
+            }
         }
         return false;
     }
@@ -433,7 +423,7 @@ public final class Response {
     /**
      * Sets the content type.
      *
-     * This method must preserve any response charset that may already have 
+     * This method must preserve any response charset that may already have
      * been set via a call to response.setContentType(), response.setLocale(),
      * or response.setCharacterEncoding().
      *
@@ -480,17 +470,13 @@ public final class Response {
 
         String ret = contentType;
 
-        if (ret != null 
+        if (ret != null
             && characterEncoding != null
             && charsetSet) {
             ret = ret + ";charset=" + characterEncoding;
         }
 
         return ret;
-    }
-    
-    public void setContentLength(int contentLength) {
-        this.contentLength = contentLength;
     }
 
     public void setContentLength(long contentLength) {
@@ -499,19 +485,19 @@ public final class Response {
 
     public int getContentLength() {
         long length = getContentLengthLong();
-        
+
         if (length < Integer.MAX_VALUE) {
             return (int) length;
         }
         return -1;
     }
-    
+
     public long getContentLengthLong() {
         return contentLength;
     }
 
 
-    /** 
+    /**
      * Write a chunk of bytes.
      */
     public void doWrite(ByteChunk chunk/*byte buffer[], int pos, int count*/)
@@ -522,9 +508,9 @@ public final class Response {
     }
 
     // --------------------
-    
+
     public void recycle() {
-        
+
         contentType = null;
         contentLanguage = null;
         locale = DEFAULT_LOCALE;
@@ -548,7 +534,7 @@ public final class Response {
     public long getContentWritten() {
         return contentWritten;
     }
-    
+
     /**
      * Bytes written to socket - i.e. after compression, chunking, etc.
      */

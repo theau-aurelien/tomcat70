@@ -28,65 +28,10 @@ import org.apache.tomcat.util.res.StringManager;
 
 public abstract class AbstractInputBuffer<S> implements InputBuffer{
 
-    protected static final boolean[] HTTP_TOKEN_CHAR = new boolean[128];
-
     /**
      * The string manager for this package.
      */
-    protected static final StringManager sm =
-        StringManager.getManager(Constants.Package);
-
-
-    static {
-        for (int i = 0; i < 128; i++) {
-            if (i < 32) {
-                HTTP_TOKEN_CHAR[i] = false;
-            } else if (i == 127) {
-                HTTP_TOKEN_CHAR[i] = false;
-            } else if (i == '(') {
-                HTTP_TOKEN_CHAR[i] = false;
-            } else if (i == ')') {
-                HTTP_TOKEN_CHAR[i] = false;
-            } else if (i == '<') {
-                HTTP_TOKEN_CHAR[i] = false;
-            } else if (i == '>') {
-                HTTP_TOKEN_CHAR[i] = false;
-            } else if (i == '@') {
-                HTTP_TOKEN_CHAR[i] = false;
-            } else if (i == ',') {
-                HTTP_TOKEN_CHAR[i] = false;
-            } else if (i == ';') {
-                HTTP_TOKEN_CHAR[i] = false;
-            } else if (i == ':') {
-                HTTP_TOKEN_CHAR[i] = false;
-            } else if (i == '\\') {
-                HTTP_TOKEN_CHAR[i] = false;
-            } else if (i == '\"') {
-                HTTP_TOKEN_CHAR[i] = false;
-            } else if (i == '/') {
-                HTTP_TOKEN_CHAR[i] = false;
-            } else if (i == '[') {
-                HTTP_TOKEN_CHAR[i] = false;
-            } else if (i == ']') {
-                HTTP_TOKEN_CHAR[i] = false;
-            } else if (i == '?') {
-                HTTP_TOKEN_CHAR[i] = false;
-            } else if (i == '=') {
-                HTTP_TOKEN_CHAR[i] = false;
-            } else if (i == '{') {
-                HTTP_TOKEN_CHAR[i] = false;
-            } else if (i == '}') {
-                HTTP_TOKEN_CHAR[i] = false;
-            } else if (i == ' ') {
-                HTTP_TOKEN_CHAR[i] = false;
-            } else if (i == '\t') {
-                HTTP_TOKEN_CHAR[i] = false;
-            } else {
-                HTTP_TOKEN_CHAR[i] = true;
-            }
-        }
-    }
-
+    protected static final StringManager sm = StringManager.getManager(Constants.Package);
 
     /**
      * Associated Coyote request.
@@ -162,6 +107,9 @@ public abstract class AbstractInputBuffer<S> implements InputBuffer{
     protected int lastActiveFilter;
 
 
+    protected boolean rejectIllegalHeaderName;
+
+
     // ------------------------------------------------------------- Properties
 
 
@@ -225,6 +173,10 @@ public abstract class AbstractInputBuffer<S> implements InputBuffer{
     }
 
 
+    /**
+     * Implementations are expected to call {@link Request#setStartTime(long)}
+     * as soon as the first byte is read from the request.
+     */
     public abstract boolean parseRequestLine(boolean useAvailableDataOnly)
         throws IOException;
     
@@ -233,7 +185,7 @@ public abstract class AbstractInputBuffer<S> implements InputBuffer{
     protected abstract boolean fill(boolean block) throws IOException; 
 
     protected abstract void init(SocketWrapper<S> socketWrapper,
-            AbstractEndpoint endpoint) throws IOException;
+            AbstractEndpoint<S> endpoint) throws IOException;
 
 
     // --------------------------------------------------------- Public Methods
@@ -274,16 +226,12 @@ public abstract class AbstractInputBuffer<S> implements InputBuffer{
         request.recycle();
 
         // Copy leftover bytes to the beginning of the buffer
-        if (lastValid - pos > 0) {
-            int npos = 0;
-            int opos = pos;
-            while (lastValid - opos > opos - npos) {
-                System.arraycopy(buf, opos, buf, npos, opos - npos);
-                npos += pos;
-                opos += pos;
-            }
-            System.arraycopy(buf, opos, buf, npos, lastValid - opos);
+        if (lastValid - pos > 0 && pos > 0) {
+            System.arraycopy(buf, pos, buf, 0, lastValid - pos);
         }
+        // Always reset pos to zero
+        lastValid = lastValid - pos;
+        pos = 0;
 
         // Recycle filters
         for (int i = 0; i <= lastActiveFilter; i++) {
@@ -291,12 +239,9 @@ public abstract class AbstractInputBuffer<S> implements InputBuffer{
         }
 
         // Reset pointers
-        lastValid = lastValid - pos;
-        pos = 0;
         lastActiveFilter = -1;
         parsingHeader = true;
         swallowInput = true;
-
     }
 
 
@@ -305,14 +250,12 @@ public abstract class AbstractInputBuffer<S> implements InputBuffer{
      * 
      * @throws IOException an underlying I/O error occurred
      */
-    public void endRequest()
-        throws IOException {
+    public void endRequest() throws IOException {
 
         if (swallowInput && (lastActiveFilter != -1)) {
             int extraBytes = (int) activeFilters[lastActiveFilter].end();
             pos = pos - extraBytes;
         }
-
     }
     
 

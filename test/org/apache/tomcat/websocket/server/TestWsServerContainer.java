@@ -16,8 +16,16 @@
  */
 package org.apache.tomcat.websocket.server;
 
+import java.net.URI;
+import java.util.Queue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+
 import javax.servlet.ServletContextEvent;
+import javax.websocket.ContainerProvider;
 import javax.websocket.DeploymentException;
+import javax.websocket.Session;
+import javax.websocket.WebSocketContainer;
 import javax.websocket.server.ServerContainer;
 import javax.websocket.server.ServerEndpointConfig;
 
@@ -26,21 +34,22 @@ import org.junit.Test;
 
 import org.apache.catalina.Context;
 import org.apache.catalina.LifecycleState;
-import org.apache.catalina.filters.TesterServletContext;
 import org.apache.catalina.servlets.DefaultServlet;
 import org.apache.catalina.startup.Tomcat;
-import org.apache.catalina.startup.TomcatBaseTest;
+import org.apache.tomcat.unittest.TesterServletContext;
 import org.apache.tomcat.websocket.TesterEchoServer;
+import org.apache.tomcat.websocket.TesterMessageCountClient.BasicText;
+import org.apache.tomcat.websocket.WebSocketBaseTest;
+import org.apache.tomcat.websocket.pojo.TesterUtil.SimpleClient;
 
 
-public class TestWsServerContainer extends TomcatBaseTest {
+public class TestWsServerContainer extends WebSocketBaseTest {
 
     @Test
     public void testBug54807() throws Exception {
         Tomcat tomcat = getTomcatInstance();
-        // Must have a real docBase - just use temp
-        Context ctx =
-            tomcat.addContext("", System.getProperty("java.io.tmpdir"));
+        // No file system docBase required
+        Context ctx = tomcat.addContext("", null);
         ctx.addApplicationListener(Bug54807Config.class.getName());
         Tomcat.addServlet(ctx, "default", new DefaultServlet());
         ctx.addServletMapping("/", "default");
@@ -48,6 +57,49 @@ public class TestWsServerContainer extends TomcatBaseTest {
         tomcat.start();
 
         Assert.assertEquals(LifecycleState.STARTED, ctx.getState());
+    }
+
+
+    @Test
+    public void testBug58232() throws Exception {
+        Tomcat tomcat = getTomcatInstance();
+        // No file system docBase required
+        Context ctx = tomcat.addContext("", null);
+        ctx.addApplicationListener(Bug54807Config.class.getName());
+        Tomcat.addServlet(ctx, "default", new DefaultServlet());
+        ctx.addServletMapping("/", "default");
+
+        WebSocketContainer wsContainer =
+                ContainerProvider.getWebSocketContainer();
+
+        tomcat.start();
+
+        Assert.assertEquals(LifecycleState.STARTED, ctx.getState());
+
+        SimpleClient client = new SimpleClient();
+        URI uri = new URI("ws://localhost:" + getPort() + "/echoBasic");
+
+        Session session = null;
+        try {
+            session = wsContainer.connectToServer(client, uri);
+            CountDownLatch latch = new CountDownLatch(1);
+            BasicText handler = new BasicText(latch);
+            session.addMessageHandler(handler);
+            session.getBasicRemote().sendText("echoBasic");
+
+            boolean latchResult = handler.getLatch().await(10, TimeUnit.SECONDS);
+            Assert.assertTrue(latchResult);
+
+            Queue<String> messages = handler.getMessages();
+            Assert.assertEquals(1, messages.size());
+            for (String message : messages) {
+                Assert.assertEquals("echoBasic", message);
+            }
+        } finally {
+            if (session != null) {
+                session.close();
+            }
+        }
     }
 
 

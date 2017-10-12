@@ -37,10 +37,10 @@ import javax.servlet.jsp.JspFactory;
 import org.apache.jasper.Constants;
 import org.apache.jasper.JspCompilationContext;
 import org.apache.jasper.Options;
+import org.apache.jasper.runtime.ExceptionUtils;
 import org.apache.jasper.runtime.JspFactoryImpl;
 import org.apache.jasper.security.SecurityClassLoad;
 import org.apache.jasper.servlet.JspServletWrapper;
-import org.apache.jasper.util.ExceptionUtils;
 import org.apache.jasper.util.FastRemovalDequeue;
 import org.apache.juli.logging.Log;
 import org.apache.juli.logging.LogFactory;
@@ -89,8 +89,6 @@ public final class JspRuntimeContext {
                                                                "runtime.JspFactoryImpl$PrivilegedReleasePageContext");
                 factory.getClass().getClassLoader().loadClass( basePackage +
                                                                "runtime.JspRuntimeLibrary");
-                factory.getClass().getClassLoader().loadClass( basePackage +
-                                                               "runtime.JspRuntimeLibrary$PrivilegedIntrospectHelper");
                 factory.getClass().getClassLoader().loadClass( basePackage +
                                                                "runtime.ServletResponseWrapperInclude");
                 factory.getClass().getClassLoader().loadClass( basePackage +
@@ -191,7 +189,8 @@ public final class JspRuntimeContext {
     /**
      * Maps JSP pages to their JspServletWrapper's
      */
-    private Map<String, JspServletWrapper> jsps = new ConcurrentHashMap<String, JspServletWrapper>();
+    private final Map<String, JspServletWrapper> jsps =
+            new ConcurrentHashMap<String, JspServletWrapper>();
 
     /**
      * Keeps JSP pages ordered by last access. 
@@ -435,7 +434,6 @@ public final class JspRuntimeContext {
     private String initClassPath() {
 
         StringBuilder cpath = new StringBuilder();
-        String sep = System.getProperty("path.separator");
 
         if (parentClassLoader instanceof URLClassLoader) {
             URL [] urls = ((URLClassLoader)parentClassLoader).getURLs();
@@ -447,12 +445,12 @@ public final class JspRuntimeContext {
                 // protocol URL's to the classpath.
                 
                 if( urls[i].getProtocol().equals("file") ) {
-                    cpath.append(urls[i].getFile()+sep);
+                    cpath.append(urls[i].getFile()+File.pathSeparator);
                 }
             }
         }
 
-        cpath.append(options.getScratchDir() + sep);
+        cpath.append(options.getScratchDir() + File.pathSeparator);
 
         String cp = (String) context.getAttribute(Constants.SERVLET_CLASSPATH);
         if (cp == null || cp.equals("")) {

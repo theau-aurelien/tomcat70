@@ -24,6 +24,7 @@ import org.apache.coyote.InputBuffer;
 import org.apache.coyote.Request;
 import org.apache.coyote.http11.InputFilter;
 import org.apache.tomcat.util.buf.ByteChunk;
+import org.apache.tomcat.util.res.StringManager;
 
 /**
  * Identity input filter.
@@ -31,6 +32,9 @@ import org.apache.tomcat.util.buf.ByteChunk;
  * @author Remy Maucherat
  */
 public class IdentityInputFilter implements InputFilter {
+
+    private static final StringManager sm = StringManager.getManager(
+            IdentityInputFilter.class.getPackage().getName());
 
 
     // -------------------------------------------------------------- Constants
@@ -76,8 +80,10 @@ public class IdentityInputFilter implements InputFilter {
     protected ByteChunk endChunk = new ByteChunk();
 
 
-    // ------------------------------------------------------------- Properties
+    private final int maxSwallowSize;
 
+
+    // ------------------------------------------------------------- Properties
 
     /**
      * Get content length.
@@ -98,6 +104,13 @@ public class IdentityInputFilter implements InputFilter {
     @Deprecated
     public long getRemaining() {
         return remaining;
+    }
+
+
+    // ------------------------------------------------------------ Constructor
+
+    public IdentityInputFilter(int maxSwallowSize) {
+        this.maxSwallowSize = maxSwallowSize;
     }
 
 
@@ -132,7 +145,9 @@ public class IdentityInputFilter implements InputFilter {
                 } else {
                     result = nRead;
                 }
-                remaining = remaining - nRead;
+                if (nRead > 0) {
+                    remaining = remaining - nRead;
+                }
             } else {
                 // No more bytes left to be read : return -1 and clear the 
                 // buffer
@@ -159,18 +174,25 @@ public class IdentityInputFilter implements InputFilter {
     }
 
 
-    /**
-     * End the current request.
-     */
     @Override
-    public long end()
-        throws IOException {
+    public long end() throws IOException {
+
+        final boolean maxSwallowSizeExceeded = (maxSwallowSize > -1 && remaining > maxSwallowSize);
+        long swallowed = 0;
 
         // Consume extra bytes.
         while (remaining > 0) {
+
             int nread = buffer.doRead(endChunk, null);
             if (nread > 0 ) {
+                swallowed += nread;
                 remaining = remaining - nread;
+                if (maxSwallowSizeExceeded && swallowed > maxSwallowSize) {
+                    // Note: We do not fail early so the client has a chance to
+                    // read the response before the connection is closed. See:
+                    // http://httpd.apache.org/docs/2.0/misc/fin_wait_2.html#appendix
+                    throw new IOException(sm.getString("inputFilter.maxSwallow"));
+                }
             } else { // errors are handled higher up.
                 remaining = 0;
             }

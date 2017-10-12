@@ -22,7 +22,7 @@ import java.io.Writer;
 import java.security.AccessController;
 import java.security.PrivilegedActionException;
 import java.security.PrivilegedExceptionAction;
-import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 
 import javax.servlet.http.HttpServletResponse;
 
@@ -126,8 +126,8 @@ public class OutputBuffer extends Writer
     /**
      * List of encoders.
      */
-    protected HashMap<String, C2BConverter> encoders =
-        new HashMap<String, C2BConverter>();
+    protected final ConcurrentHashMap<String, C2BConverter> encoders =
+            new ConcurrentHashMap<String, C2BConverter>();
 
 
     /**
@@ -235,7 +235,6 @@ public class OutputBuffer extends Writer
 
     // --------------------------------------------------------- Public Methods
 
-
     /**
      * Recycle the output buffer.
      */
@@ -293,10 +292,13 @@ public class OutputBuffer extends Writer
             cb.flushBuffer();
         }
 
-        if ((!coyoteResponse.isCommitted())
-            && (coyoteResponse.getContentLengthLong() == -1)) {
+        if ((!coyoteResponse.isCommitted()) && (coyoteResponse.getContentLengthLong() == -1) &&
+                !coyoteResponse.getRequest().method().equals("HEAD")) {
             // If this didn't cause a commit of the response, the final content
-            // length can be calculated
+            // length can be calculated. Only do this if this is not a HEAD
+            // request since in that case no body should have been written and
+            // setting a value of zero here will result in an explicit content
+            // length of zero being set on the response.
             if (!coyoteResponse.isCommitted()) {
                 coyoteResponse.setContentLength(bb.getLength());
             }
@@ -328,8 +330,7 @@ public class OutputBuffer extends Writer
      * @throws IOException An underlying IOException occurred
      */
     @Override
-    public void flush()
-        throws IOException {
+    public void flush() throws IOException {
         doFlush(true);
     }
 
@@ -339,8 +340,7 @@ public class OutputBuffer extends Writer
      *
      * @throws IOException An underlying IOException occurred
      */
-    protected void doFlush(boolean realFlush)
-        throws IOException {
+    protected void doFlush(boolean realFlush) throws IOException {
 
         if (suspended) {
             return;
@@ -363,13 +363,11 @@ public class OutputBuffer extends Writer
         }
 
         if (realFlush) {
-            coyoteResponse.action(ActionCode.CLIENT_FLUSH,
-                                  coyoteResponse);
+            coyoteResponse.action(ActionCode.CLIENT_FLUSH, null);
             // If some exception occurred earlier, or if some IOE occurred
             // here, notify the servlet with an IOE
             if (coyoteResponse.isExceptionPresent()) {
-                throw new ClientAbortException
-                    (coyoteResponse.getErrorException());
+                throw new ClientAbortException(coyoteResponse.getErrorException());
             }
         }
 
@@ -377,7 +375,6 @@ public class OutputBuffer extends Writer
 
 
     // ------------------------------------------------- Bytes Handling Methods
-
 
     /**
      * Sends the buffer data to the client output, checking the
@@ -612,10 +609,12 @@ public class OutputBuffer extends Writer
 
                             }
                     );
-                }catch(PrivilegedActionException ex){
+                } catch (PrivilegedActionException ex){
                     Exception e = ex.getException();
                     if (e instanceof IOException) {
                         throw (IOException)e;
+                    } else {
+                        throw new IOException(ex);
                     }
                 }
             } else {

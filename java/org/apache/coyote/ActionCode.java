@@ -32,6 +32,15 @@ public enum ActionCode {
     COMMIT,
 
     /**
+     * A serious error occurred from which it is not possible to recover safely.
+     * Further attempts to write to the response should be ignored and the
+     * connection needs to be closed as soon as possible. This can also be used
+     * to forcibly close a connection if an error occurs after the response has
+     * been committed.
+     */
+    CLOSE_NOW,
+
+    /**
      * A flush() operation originated by the client ( i.e. a flush() on the
      * servlet output stream or writer, called by a servlet ). Argument is the
      * Response.
@@ -108,17 +117,17 @@ public enum ActionCode {
     REQ_SET_BODY_REPLAY,
 
     /**
-     * Callback for begin Comet processing
+     * Callback for begin Comet processing.
      */
     COMET_BEGIN,
 
     /**
-     * Callback for end Comet processing
+     * Callback for end Comet processing.
      */
     COMET_END,
 
     /**
-     * Callback for getting the amount of available bytes
+     * Callback for getting the amount of available bytes.
      */
     AVAILABLE,
 
@@ -133,13 +142,13 @@ public enum ActionCode {
     COMET_SETTIMEOUT,
 
     /**
-     * Callback for an async request
+     * Callback for an async request.
      */
     ASYNC_START,
 
     /**
      * Callback for an async call to
-     * {@link javax.servlet.AsyncContext#dispatch()}
+     * {@link javax.servlet.AsyncContext#dispatch()}.
      */
     ASYNC_DISPATCH,
 
@@ -151,23 +160,23 @@ public enum ActionCode {
 
     /**
      * Callback for an async call to
-     * {@link javax.servlet.AsyncContext#start(Runnable)}
+     * {@link javax.servlet.AsyncContext#start(Runnable)}.
      */
     ASYNC_RUN,
 
     /**
      * Callback for an async call to
-     * {@link javax.servlet.AsyncContext#complete()}
+     * {@link javax.servlet.AsyncContext#complete()}.
      */
     ASYNC_COMPLETE,
     
     /**
-     * Callback to trigger the processing of an async timeout
+     * Callback to trigger the processing of an async timeout.
      */
     ASYNC_TIMEOUT,
     
     /**
-     * Callback to trigger the error processing
+     * Callback to trigger the error processing.
      */
     ASYNC_ERROR,
     
@@ -178,27 +187,32 @@ public enum ActionCode {
     ASYNC_SETTIMEOUT,
     
     /**
-     * Callback to determine if async processing is in progress 
+     * Callback to determine if async processing is in progress.
      */
     ASYNC_IS_ASYNC,
     
     /**
-     * Callback to determine if async dispatch is in progress
+     * Callback to determine if async dispatch is in progress.
      */
     ASYNC_IS_STARTED,
 
     /**
-     * Callback to determine if async dispatch is in progress
+     * Call back to determine if async complete is in progress.
+     */
+    ASYNC_IS_COMPLETING,
+
+    /**
+     * Callback to determine if async dispatch is in progress.
      */
     ASYNC_IS_DISPATCHING,
 
     /**
-     * Callback to determine if async is timing out
+     * Callback to determine if async is timing out.
      */
     ASYNC_IS_TIMINGOUT,
 
     /**
-    * Callback to determine if async is in error
+    * Callback to determine if async is in error.
     */
     ASYNC_IS_ERROR,
 
@@ -206,9 +220,21 @@ public enum ActionCode {
      * Callback to trigger Tomcat's proprietary HTTP upgrade process.
      */
     UPGRADE_TOMCAT,
+
+    /**
+     * Callback to trigger post processing. Typically only used during error
+     * handling to trigger essential processing that otherwise would be skipped.
+     */
+    ASYNC_POST_PROCESS,
     
     /**
      * Callback to trigger the Servlet 3.1 based HTTP upgrade process.
      */
-    UPGRADE
+    UPGRADE,
+
+    /**
+     * Trigger end of request processing (remaining input swallowed, write any
+     * remaining parts of the response etc.).
+     */
+    END_REQUEST
 }

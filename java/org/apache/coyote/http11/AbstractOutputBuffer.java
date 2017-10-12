@@ -248,8 +248,6 @@ public abstract class AbstractOutputBuffer<S> implements OutputBuffer{
         if (committed)
             throw new IllegalStateException(/*FIXME:Put an error message*/);
 
-        // Recycle Request object
-        response.recycle();
         // These will need to be reset if the reset was triggered by the error
         // handling if the headers were too large
         pos = 0;
@@ -313,7 +311,7 @@ public abstract class AbstractOutputBuffer<S> implements OutputBuffer{
 
     
     public abstract void init(SocketWrapper<S> socketWrapper,
-            AbstractEndpoint endpoint) throws IOException;
+            AbstractEndpoint<S> endpoint) throws IOException;
 
     public abstract void sendAck() throws IOException;
     
@@ -543,7 +541,9 @@ public abstract class AbstractOutputBuffer<S> implements OutputBuffer{
      * requested number of bytes.
      */
     private void checkLengthBeforeWrite(int length) {
-        if (pos + length > buf.length) {
+        // "+ 4": BZ 57509. Reserve space for CR/LF/COLON/SP characters that
+        // are put directly into the buffer following this write operation.
+        if (pos + length + 4 > buf.length) {
             throw new HeadersTooLargeException(
                     sm.getString("iob.responseheadertoolarge.error"));
         }

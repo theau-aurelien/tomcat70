@@ -37,13 +37,14 @@ import org.apache.catalina.security.SecurityUtil;
 import org.apache.juli.logging.Log;
 import org.apache.juli.logging.LogFactory;
 /**
- * Extends the <b>ManagerBase</b> class to implement most of the
+ * Extends the {@link ManagerBase} class to implement most of the
  * functionality required by a Manager which supports any kind of
  * persistence, even if only for  restarts.
  * <p>
  * <b>IMPLEMENTATION NOTE</b>:  Correct behavior of session storing and
- * reloading depends upon external calls to the <code>start()</code> and
- * <code>stop()</code> methods of this class at the correct times.
+ * reloading depends upon external calls to the {@link Lifecycle#start()}
+ * and {@link Lifecycle#stop()} methods of this class
+ * at the correct times.
  *
  * @author Craig R. McClanahan
  * @author Jean-Francois Arcand
@@ -143,6 +144,12 @@ public abstract class PersistentManagerBase extends ManagerBase
      */
     private static String name = "PersistentManagerBase";
 
+    /**
+     * Key of the note of a session in which the timestamp of last backup is stored.
+     */
+    private static final String PERSISTED_LAST_ACCESSED_TIME =
+            "org.apache.catalina.session.PersistentManagerBase.persistedLastAccessedTime";
+
 
     /**
      * Store object which will manage the Session store.
@@ -159,22 +166,24 @@ public abstract class PersistentManagerBase extends ManagerBase
 
     /**
      * How long a session must be idle before it should be backed up.
-     * -1 means sessions won't be backed up.
+     * {@code -1} means sessions won't be backed up.
      */
     protected int maxIdleBackup = -1;
 
 
     /**
-     * Minimum time a session must be idle before it is swapped to disk.
-     * This overrides maxActiveSessions, to prevent thrashing if there are lots
-     * of active sessions. Setting to -1 means it's ignored.
+     * The minimum time in seconds a session must be idle before it is eligible
+     * to be swapped to disk to keep the active session count below
+     * maxActiveSessions. Setting to {@code -1} means sessions will not be
+     * swapped out to keep the active session count down.
      */
     protected int minIdleSwap = -1;
 
+
     /**
-     * The maximum time a session may be idle before it should be swapped
-     * to file just on general principle. Setting this to -1 means sessions
-     * should not be forced out.
+     * The maximum time in seconds a session may be idle before it is eligible
+     * to be swapped to disk due to inactivity. Setting this to {@code -1} means
+     * sessions should not be swapped out just because of inactivity.
      */
     protected int maxIdleSwap = -1;
 
@@ -191,8 +200,10 @@ public abstract class PersistentManagerBase extends ManagerBase
 
     /**
      * Indicates how many seconds old a session can get, after its last use in a
-     * request, before it should be backed up to the store. -1 means sessions
+     * request, before it should be backed up to the store. {@code -1} means sessions
      * are not backed up.
+     *
+     * @return the timeout after which sessions are ripe for back up
      */
     public int getMaxIdleBackup() {
 
@@ -206,16 +217,16 @@ public abstract class PersistentManagerBase extends ManagerBase
      * are used in a request. Sessions remain available in memory
      * after being backed up, so they are not passivated as they are
      * when swapped out. The value set indicates how old a session
-     * may get (since its last use) before it must be backed up: -1
+     * may get (since its last use) before it must be backed up: {@code -1}
      * means sessions are not backed up.
      * <p>
      * Note that this is not a hard limit: sessions are checked
-     * against this age limit periodically according to <b>processExpiresFrequency</b>.
+     * against this age limit periodically according to {@code processExpiresFrequency}.
      * This value should be considered to indicate when a session is
      * ripe for backing up.
      * <p>
-     * So it is possible that a session may be idle for maxIdleBackup +
-     * processExpiresFrequency * engine.backgroundProcessorDelay seconds, plus the time it takes to handle other
+     * So it is possible that a session may be idle for {@code maxIdleBackup +
+     * processExpiresFrequency * engine.backgroundProcessorDelay} seconds, plus the time it takes to handle other
      * session expiration, swapping, etc. tasks.
      *
      * @param backup The number of seconds after their last accessed
@@ -235,19 +246,22 @@ public abstract class PersistentManagerBase extends ManagerBase
 
 
     /**
-     * The time in seconds after which a session should be swapped out of
-     * memory to disk.
+     * @return The maximum time in seconds a session may be idle before it is
+     * eligible to be swapped to disk due to inactivity. A value of {@code -1}
+     * means sessions should not be swapped out just because of inactivity.
      */
     public int getMaxIdleSwap() {
-
         return maxIdleSwap;
-
     }
 
 
     /**
-     * Sets the time in seconds after which a session should be swapped out of
-     * memory to disk.
+     * Sets the maximum time in seconds a session may be idle before it is
+     * eligible to be swapped to disk due to inactivity. Setting this to
+     * {@code -1} means sessions should not be swapped out just because of
+     * inactivity.
+     *
+     * @param max time in seconds to wait for possible swap out
      */
     public void setMaxIdleSwap(int max) {
 
@@ -258,26 +272,27 @@ public abstract class PersistentManagerBase extends ManagerBase
         support.firePropertyChange("maxIdleSwap",
                                    Integer.valueOf(oldMaxIdleSwap),
                                    Integer.valueOf(this.maxIdleSwap));
-
     }
 
 
     /**
-     * The minimum time in seconds that a session must be idle before
-     * it can be swapped out of memory, or -1 if it can be swapped out
-     * at any time.
+     * @return The minimum time in seconds a session must be idle before it is
+     * eligible to be swapped to disk to keep the active session count below
+     * maxActiveSessions. A value of {@code -1} means sessions will not be
+     * swapped out to keep the active session count down.
      */
     public int getMinIdleSwap() {
-
         return minIdleSwap;
-
     }
 
 
     /**
-     * Sets the minimum time in seconds that a session must be idle before
-     * it can be swapped out of memory due to maxActiveSession. Set it to -1
-     * if it can be swapped out at any time.
+     * Sets the minimum time in seconds a session must be idle before it is
+     * eligible to be swapped to disk to keep the active session count below
+     * maxActiveSessions. Setting to {@code -1} means sessions will not be
+     * swapped out to keep the active session count down.
+     *
+     * @param min time in seconds before a possible swap out
      */
     public void setMinIdleSwap(int min) {
 
@@ -293,23 +308,24 @@ public abstract class PersistentManagerBase extends ManagerBase
 
 
     /**
-     * Return descriptive information about this Manager implementation and
+     * @return descriptive information about this Manager implementation and
      * the corresponding version number, in the format
      * <code>&lt;description&gt;/&lt;version&gt;</code>.
      */
     @Override
     public String getInfo() {
 
-        return (info);
+        return info;
 
     }
 
 
     /**
-     * Return true, if the session id is loaded in memory
-     * otherwise false is returned
+     * Check, whether a session is loaded in memory
      *
      * @param id The session id for the session to be searched for
+     * @return {@code true}, if the session id is loaded in memory
+     * otherwise {@code false} is returned
      */
     public boolean isLoaded( String id ){
         try {
@@ -322,14 +338,9 @@ public abstract class PersistentManagerBase extends ManagerBase
     }
 
 
-    /**
-     * Return the descriptive short name of this Manager implementation.
-     */
     @Override
     public String getName() {
-
-        return (name);
-
+        return name;
     }
 
 
@@ -342,24 +353,24 @@ public abstract class PersistentManagerBase extends ManagerBase
     public void setStore(Store store) {
         this.store = store;
         store.setManager(this);
-
     }
 
 
     /**
-     * Return the Store object which manages persistent Session
+     * @return the Store object which manages persistent Session
      * storage for this Manager.
      */
     public Store getStore() {
-
-        return (this.store);
-
+        return this.store;
     }
 
 
     /**
      * Indicates whether sessions are saved when the Manager is shut down
-     * properly. This requires the unload() method to be called.
+     * properly. This requires the {@link #unload()} method to be called.
+     *
+     * @return {@code true}, when sessions should be saved on restart,
+     * {code false} otherwise
      */
     public boolean getSaveOnRestart() {
 
@@ -374,7 +385,7 @@ public abstract class PersistentManagerBase extends ManagerBase
      * false, any sessions found in the Store may still be picked up when
      * the Manager is started again.
      *
-     * @param saveOnRestart true if sessions should be saved on restart, false if
+     * @param saveOnRestart {@code true} if sessions should be saved on restart, {@code false} if
      *     they should be ignored.
      */
     public void setSaveOnRestart(boolean saveOnRestart) {
@@ -422,7 +433,9 @@ public abstract class PersistentManagerBase extends ManagerBase
 
 
     /**
-     * Implements the Manager interface, direct call to processExpires and processPersistenceChecks
+     * {@inheritDoc}
+     * <p>
+     * Direct call to processExpires and processPersistenceChecks
      */
     @Override
     public void processExpires() {
@@ -465,17 +478,10 @@ public abstract class PersistentManagerBase extends ManagerBase
 
 
     /**
-     * Return the active Session, associated with this Manager, with the
-     * specified session id (if any); otherwise return <code>null</code>.
+     * {@inheritDoc}
+     * <p>
      * This method checks the persistence store if persistence is enabled,
      * otherwise just uses the functionality from ManagerBase.
-     *
-     * @param id The session id for the session to be returned
-     *
-     * @exception IllegalStateException if a new session cannot be
-     *  instantiated for any reason
-     * @exception IOException if an input/output error occurs while
-     *  processing this request
      */
     @Override
     public Session findSession(String id) throws IOException {
@@ -499,12 +505,11 @@ public abstract class PersistentManagerBase extends ManagerBase
             }
         }
         if (session != null)
-            return (session);
+            return session;
 
         // See if the Session is in the Store
         session = swapIn(id);
-        return (session);
-
+        return session;
     }
 
     /**
@@ -514,7 +519,7 @@ public abstract class PersistentManagerBase extends ManagerBase
      * @param session Session to be removed
      */
     public void removeSuper(Session session) {
-        super.remove (session);
+        super.remove(session, false);
     }
 
     /**
@@ -574,10 +579,9 @@ public abstract class PersistentManagerBase extends ManagerBase
 
 
     /**
-     * Remove this Session from the active Sessions for this Manager,
-     * and from the Store.
-     *
-     * @param session Session to be removed
+     * {@inheritDoc}
+     * <p>
+     * Remove this Session from the Store.
      */
     @Override
     public void remove(Session session, boolean update) {
@@ -689,6 +693,8 @@ public abstract class PersistentManagerBase extends ManagerBase
      * The session will be removed from the Store after swapping
      * in, but will not be added to the active session list if it
      * is invalid or past its expiration.
+     *
+     * @return restored session, or {@code null}, if none is found
      */
     protected Session swapIn(String id) throws IOException {
 
@@ -778,7 +784,7 @@ public abstract class PersistentManagerBase extends ManagerBase
             sessionSwapInLocks.remove(id);
         }
 
-        return (session);
+        return session;
 
     }
 
@@ -920,11 +926,11 @@ public abstract class PersistentManagerBase extends ManagerBase
                         continue;
                     int timeIdle;
                     if (StandardSession.LAST_ACCESS_AT_START) {
-                        timeIdle = (int) ((timeNow - session.getLastAccessedTime()) / 1000L);
+                        timeIdle = (int) ((timeNow - session.getLastAccessedTimeInternal()) / 1000L);
                     } else {
-                        timeIdle = (int) ((timeNow - session.getThisAccessedTime()) / 1000L);
+                        timeIdle = (int) ((timeNow - session.getThisAccessedTimeInternal()) / 1000L);
                     }
-                    if (timeIdle > maxIdleSwap && timeIdle > minIdleSwap) {
+                    if (timeIdle >= maxIdleSwap && timeIdle >= minIdleSwap) {
                         if (session.accessCount != null &&
                                 session.accessCount.get() > 0) {
                             // Session is currently being accessed - skip it
@@ -959,7 +965,9 @@ public abstract class PersistentManagerBase extends ManagerBase
         Session sessions[] = findSessions();
 
         // FIXME: Smarter algorithm (LRU)
-        if (getMaxActiveSessions() >= sessions.length)
+        int limit = (int) (getMaxActiveSessions() * 0.9);
+
+        if (limit >= sessions.length)
             return;
 
         if(log.isDebugEnabled())
@@ -967,7 +975,7 @@ public abstract class PersistentManagerBase extends ManagerBase
                 ("persistentManager.tooManyActive",
                  Integer.valueOf(sessions.length)));
 
-        int toswap = sessions.length - getMaxActiveSessions();
+        int toswap = sessions.length - limit;
         long timeNow = System.currentTimeMillis();
 
         for (int i = 0; i < sessions.length && toswap > 0; i++) {
@@ -975,11 +983,11 @@ public abstract class PersistentManagerBase extends ManagerBase
             synchronized (session) {
                 int timeIdle;
                 if (StandardSession.LAST_ACCESS_AT_START) {
-                    timeIdle = (int) ((timeNow - session.getLastAccessedTime()) / 1000L);
+                    timeIdle = (int) ((timeNow - session.getLastAccessedTimeInternal()) / 1000L);
                 } else {
-                    timeIdle = (int) ((timeNow - session.getThisAccessedTime()) / 1000L);
+                    timeIdle = (int) ((timeNow - session.getThisAccessedTimeInternal()) / 1000L);
                 }
-                if (timeIdle > minIdleSwap) {
+                if (timeIdle >= minIdleSwap) {
                     if (session.accessCount != null &&
                             session.accessCount.get() > 0) {
                         // Session is currently being accessed - skip it
@@ -1021,13 +1029,19 @@ public abstract class PersistentManagerBase extends ManagerBase
                 synchronized (session) {
                     if (!session.isValid())
                         continue;
+                    long lastAccessedTime = session.getLastAccessedTimeInternal();
+                    Long persistedLastAccessedTime =
+                            (Long) session.getNote(PERSISTED_LAST_ACCESSED_TIME);
+                    if (persistedLastAccessedTime != null &&
+                            lastAccessedTime == persistedLastAccessedTime.longValue())
+                        continue;
                     int timeIdle;
                     if (StandardSession.LAST_ACCESS_AT_START) {
-                        timeIdle = (int) ((timeNow - session.getLastAccessedTime()) / 1000L);
+                        timeIdle = (int) ((timeNow - session.getLastAccessedTimeInternal()) / 1000L);
                     } else {
-                        timeIdle = (int) ((timeNow - session.getThisAccessedTime()) / 1000L);
+                        timeIdle = (int) ((timeNow - session.getThisAccessedTimeInternal()) / 1000L);
                     }
-                    if (timeIdle > maxIdleBackup) {
+                    if (timeIdle >= maxIdleBackup) {
                         if (log.isDebugEnabled())
                             log.debug(sm.getString
                                 ("persistentManager.backupMaxIdle",
@@ -1039,6 +1053,8 @@ public abstract class PersistentManagerBase extends ManagerBase
                         } catch (IOException e) {
                             // This is logged in writeSession()
                         }
+                        session.setNote(PERSISTED_LAST_ACCESSED_TIME,
+                                Long.valueOf(lastAccessedTime));
                     }
                 }
             }

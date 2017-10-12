@@ -17,16 +17,13 @@
  */
 package org.apache.tomcat.util.bcel.classfile;
 
-import java.io.DataOutputStream;
-import java.io.IOException;
-
 public class AnnotationElementValue extends ElementValue
 {
     // For annotation element values, this is the annotation
-    private AnnotationEntry annotationEntry;
+    private final AnnotationEntry annotationEntry;
 
-    public AnnotationElementValue(int type, AnnotationEntry annotationEntry,
-            ConstantPool cpool)
+    AnnotationElementValue(final int type, final AnnotationEntry annotationEntry,
+            final ConstantPool cpool)
     {
         super(type, cpool);
         if (type != ANNOTATION) {
@@ -37,22 +34,9 @@ public class AnnotationElementValue extends ElementValue
     }
 
     @Override
-    public void dump(DataOutputStream dos) throws IOException
-    {
-        dos.writeByte(type); // u1 type of value (ANNOTATION == '@')
-        annotationEntry.dump(dos);
-    }
-
-    @Override
     public String stringifyValue()
     {
         return annotationEntry.toString();
-    }
-
-    @Override
-    public String toString()
-    {
-        return stringifyValue();
     }
 
     public AnnotationEntry getAnnotationEntry()

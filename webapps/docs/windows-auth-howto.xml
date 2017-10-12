@@ -53,25 +53,25 @@ sections.</p>
 <section name="Built-in Tomcat support">
 <p>Kerberos (the basis for integrated Windows authentication) requires careful
 configuration. If the steps in this guide are followed exactly, then a working
-configuration will result. There may be some flexibility in some of the steps
-below but further testing is required to explore this. From the testing to date
-it is known that:</p>
+configuration will result. It is important that the steps below are followed
+exactly. There is very little scope for flexibility in the configuration. From
+the testing to date it is known that:</p>
 <ul>
-<li>The host name of the Tomcat server must match the host name in the SPN
-exactly else authentication will fail. A checksum error may be reported in the
-debug logs in this case.</li>
+<li>The host name used to access the Tomcat server must match the host name in
+the SPN exactly else authentication will fail. A checksum error may be reported
+in the debug logs in this case.</li>
 <li>The client must be of the view that the server is part of the local trusted
 intranet.</li>
-</ul>
-<p>The areas where further testing is required include:</p>
-<ul>
-<li>Does the domain name have to be in upper case?</li>
-<li>Does the SPN have to start with HTTP/...?</li>
-<li>Can a port number be appended to the end of the host in the SPN?</li>
-<li>Can the domain be left off the user in the ktpass command?</li>
-<li>What are the limitations on the account that Tomcat can run as? SPN
-    associated account works, domain admin works, local admin doesn't
-    work</li>
+<li>The SPN must be HTTP/&lt;hostname&gt; and it must be exactly the same in all
+the places it is used.</li>
+<li>The port number must not be included in the SPN.</li>
+<li>No more than one SPN may be mapped to a domain user.</li>
+<li>Tomcat must run as the domain account with which the SPN has been associated
+or as domain admin. It is <strong>NOT</strong> recommended to run Tomcat under a
+domain admin user.</li>
+<li>The domain name (<code>DEV.LOCAL</code>) is not case sensitive when used in
+the ktpass command, nor when used in jaas.conf</li>
+<li>The domain must be specified when using the ktpass command</li>
 </ul>
 <p>There are four components to the configuration of the built-in Tomcat
 support for Windows authentication. The domain controller, the server hosting
@@ -146,7 +146,7 @@ DEV.LOCAL = {
 dev.local= DEV.LOCAL
 .dev.local= DEV.LOCAL</source>
   The location of this file can be changed by setting the
-  <code>java.security.krb5.conf</code> systm property.</li>
+  <code>java.security.krb5.conf</code> system property.</li>
   <li>Create the JAAS login configuration file
   <code>$CATALINA_BASE/conf/jaas.conf</code>. The file used in this how-to
   contained:<source>com.sun.security.jgss.krb5.initiate {
@@ -172,9 +172,6 @@ com.sun.security.jgss.krb5.accept {
   the JVM being used. The name of the login configuration must match the
   value used by the <a href="config/valve.html#SPNEGO_Valve">authentication
   valve</a>.</li>
-  <li>The system property <code>javax.security.auth.useSubjectCredsOnly</code>
-  is automatically set to the required value of false if a web application is
-  configured to use the SPNEGO authentication method.</li>
   </ul>
   <p>The SPNEGO authenticator will work with any <a href="config/realm.html">
   Realm</a> but if used with the JNDI Realm, by default the JNDI Realm will use
@@ -197,7 +194,7 @@ com.sun.security.jgss.krb5.accept {
   changes:</p>
   <ul>
   <li>The Linux server does not have to be part of the Windows domain.</li>
-  <li>The path to the keytab file in krb5.ini and jass.conf should be updated
+  <li>The path to the keytab file in krb5.ini and jaas.conf should be updated
       to reflect the path to the keytab file on the Linux server using Linux
       style file paths (e.g. /usr/local/tomcat/...).</li>
   </ul>
@@ -233,7 +230,7 @@ com.sun.security.jgss.krb5.accept {
       SPNEGO project at SourceForge</a></li>
   <li><a href="http://docs.oracle.com/javase/1.5.0/docs/guide/security/jgss/tutorials/index.html">
       Oracle JGSS tutorial</a></li>
-  <li><a href="https://cwiki.apache.org/GMOxDOC21/using-spengo-in-geronimo.html#UsingSpengoingeronimo-SettinguptheActiveDirectoryDomainController">
+  <li><a href="https://cwiki.apache.org/confluence/display/GMOxDOC21/Using+SPNEGO+in+Geronimo#UsingSPNEGOinGeronimo-SettinguptheDomainControllerMachine">
       Geronimo configuration for Windows authentication</a></li>
   <li><a href="http://blogs.msdn.com/b/openspecification/archive/2010/11/17/encryption-type-selection-in-kerberos-exchanges.aspx">
       Encryption Selection in Kerberos Exchanges</a></li>
@@ -302,7 +299,9 @@ com.sun.security.jgss.krb5.accept {
   <li>Configure IIS to use Windows authentication</li>
   <li>Configure Tomcat to use the authentication user information from IIS by
   setting the tomcatAuthentication attribute on the <a href="config/ajp.html">
-  AJP connector</a> to <code>false</code>.</li>
+  AJP connector</a> to <code>false</code>. Alternatively, set the
+  tomcatAuthorization attribute to <code>true</code> to allow IIS to
+  authenticate, while Tomcat performs the authorization.</li>
   </ol>
   </subsection>
 

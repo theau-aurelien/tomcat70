@@ -82,7 +82,7 @@ public final class ByteChunk implements Cloneable, Serializable {
             throws IOException;
     }
 
-    /** Same as java.nio.channel.WrittableByteChannel.
+    /** Same as java.nio.channel.WritableByteChannel.
      */
     public static interface ByteOutputChannel {
         /**
@@ -100,6 +100,10 @@ public final class ByteChunk implements Cloneable, Serializable {
         8859_1, and this object is used mostly for servlets.
     */
     public static final Charset DEFAULT_CHARSET = B2CConverter.ISO_8859_1;
+
+    private int hashCode=0;
+    // did we compute the hashcode ?
+    private boolean hasHashCode = false;
 
     // byte[]
     private byte[] buff;
@@ -155,6 +159,7 @@ public final class ByteChunk implements Cloneable, Serializable {
         start=0;
         end=0;
         isSet=false;
+        hasHashCode = false;
     }
 
     public void reset() {
@@ -171,6 +176,7 @@ public final class ByteChunk implements Cloneable, Serializable {
         start=0;
         end=0;
         isSet=true;
+        hasHashCode = false;
     }
 
     /**
@@ -185,6 +191,7 @@ public final class ByteChunk implements Cloneable, Serializable {
         start = off;
         end = start+ len;
         isSet=true;
+        hasHashCode = false;
     }
 
     /**
@@ -574,6 +581,14 @@ public final class ByteChunk implements Cloneable, Serializable {
 
     // -------------------- equals --------------------
 
+    @Override
+    public boolean equals(Object obj) {
+        if (obj instanceof ByteChunk) {
+            return equals((ByteChunk) obj);
+        }
+        return false;
+    }
+
     /**
      * Compares the message bytes to the specified String object.
      * @param s the String to compare
@@ -757,6 +772,19 @@ public final class ByteChunk implements Cloneable, Serializable {
 
     // -------------------- Hash code  --------------------
 
+    @Override
+    public int hashCode() {
+        if (hasHashCode) {
+            return hashCode;
+        }
+        int code = 0;
+
+        code = hash();
+        hashCode = code;
+        hasHashCode = true;
+        return code;
+    }
+
     // normal hash.
     public int hash() {
         return hashBytes( buff, start, end-start);
@@ -796,7 +824,7 @@ public final class ByteChunk implements Cloneable, Serializable {
      * Returns the first instance of the given character in this ByteChunk
      * starting at the specified byte. If the character is not found, -1 is
      * returned.
-     * <br/>
+     * <br>
      * NOTE: This only works for characters in the range 0-127.
      *
      * @param c         The character
@@ -812,7 +840,7 @@ public final class ByteChunk implements Cloneable, Serializable {
     /**
      * Returns the first instance of the given character in the given byte array
      * between the specified start and end.
-     * <br/>
+     * <br>
      * NOTE: This only works for characters in the range 0-127.
      *
      * @param bytes The byte array to search

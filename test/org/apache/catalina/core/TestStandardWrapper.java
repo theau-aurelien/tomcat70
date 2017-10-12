@@ -199,9 +199,8 @@ public class TestStandardWrapper extends TomcatBaseTest {
         // Setup Tomcat instance
         Tomcat tomcat = getTomcatInstance();
 
-        // Must have a real docBase - just use temp
-        Context ctx =
-            tomcat.addContext("", System.getProperty("java.io.tmpdir"));
+        // No file system docBase required
+        Context ctx = tomcat.addContext("", null);
 
         Servlet s = new DenyAllServlet();
         ServletContainerInitializer sci = new SCI(s, useCreateServlet);
@@ -228,9 +227,8 @@ public class TestStandardWrapper extends TomcatBaseTest {
         // Setup Tomcat instance
         Tomcat tomcat = getTomcatInstance();
 
-        // Must have a real docBase - just use temp
-        Context ctx =
-            tomcat.addContext("", System.getProperty("java.io.tmpdir"));
+        // No file system docBase required
+        Context ctx = tomcat.addContext("", null);
 
         Wrapper wrapper = Tomcat.addServlet(ctx, "servlet", servletClassName);
         wrapper.setAsyncSupported(true);
@@ -359,16 +357,19 @@ public class TestStandardWrapper extends TomcatBaseTest {
     public static CountDownLatch latch = null;
     public static AtomicInteger counter = new AtomicInteger(0);
 
+    public static void initLatch() {
+        latch = new CountDownLatch(BUG51445_THREAD_COUNT);
+    }
+
     @Test
     public void testBug51445AddServlet() throws Exception {
 
-        latch = new CountDownLatch(BUG51445_THREAD_COUNT);
+        initLatch();
 
         Tomcat tomcat = getTomcatInstance();
 
-        // Must have a real docBase - just use temp
-        StandardContext ctx = (StandardContext)
-            tomcat.addContext("", System.getProperty("java.io.tmpdir"));
+        // No file system docBase required
+        StandardContext ctx = (StandardContext) tomcat.addContext("", null);
 
         Tomcat.addServlet(ctx, "Bug51445", new Bug51445Servlet());
         ctx.addServletMapping("/", "Bug51445");
@@ -406,13 +407,12 @@ public class TestStandardWrapper extends TomcatBaseTest {
     @Test
     public void testBug51445AddChild() throws Exception {
 
-        latch = new CountDownLatch(BUG51445_THREAD_COUNT);
+        initLatch();
 
         Tomcat tomcat = getTomcatInstance();
 
-        // Must have a real docBase - just use temp
-        StandardContext ctx = (StandardContext)
-            tomcat.addContext("", System.getProperty("java.io.tmpdir"));
+        // No file system docBase required
+        StandardContext ctx = (StandardContext) tomcat.addContext("", null);
 
         StandardWrapper wrapper = new StandardWrapper();
         wrapper.setServletName("Bug51445");

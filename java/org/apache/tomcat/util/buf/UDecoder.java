@@ -29,8 +29,8 @@ import java.io.IOException;
  */
 public final class UDecoder {
 
-    protected static final boolean ALLOW_ENCODED_SLASH =
-        Boolean.valueOf(System.getProperty("org.apache.tomcat.util.buf.UDecoder.ALLOW_ENCODED_SLASH", "false")).booleanValue();
+    public static final boolean ALLOW_ENCODED_SLASH =
+        Boolean.parseBoolean(System.getProperty("org.apache.tomcat.util.buf.UDecoder.ALLOW_ENCODED_SLASH", "false"));
 
     private static class DecodeException extends CharConversionException {
         private static final long serialVersionUID = 1L;

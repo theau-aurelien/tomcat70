@@ -47,7 +47,7 @@ import javax.servlet.jsp.tagext.VariableInfo;
 import org.apache.jasper.Constants;
 import org.apache.jasper.JasperException;
 import org.apache.jasper.JspCompilationContext;
-import org.apache.jasper.util.ExceptionUtils;
+import org.apache.jasper.runtime.ExceptionUtils;
 import org.apache.jasper.xmlparser.ParserUtils;
 import org.apache.jasper.xmlparser.TreeNode;
 import org.apache.juli.logging.Log;
@@ -340,9 +340,14 @@ class TagLibraryInfoImpl extends TagLibraryInfo implements TagConstants {
                 err.jspError("jsp.error.tld.missing_jar", uri);
             }
             return new TldLocation("META-INF/taglib.tld", url.toString());
-        } else {
-            return new TldLocation(uri);
+        } else if (uri.startsWith("/WEB-INF/lib/")
+                || uri.startsWith("/WEB-INF/classes/") ||
+                (uri.startsWith("/WEB-INF/tags/") && uri.endsWith(".tld")
+                        && !uri.endsWith("implicit.tld"))) {
+            err.jspError("jsp.error.tld.invalid_tld_file", uri);
         }
+
+        return new TldLocation(uri);
     }
 
     private TagInfo createTagInfo(TreeNode elem, String jspVersion)
@@ -483,9 +488,12 @@ class TagLibraryInfoImpl extends TagLibraryInfo implements TagConstants {
             }
         }
 
-        if (path.startsWith("/META-INF/tags")) {
+        if (path == null) {
+            // path is required
+            err.jspError("jsp.error.tagfile.missingPath");
+        } else if (path.startsWith("/META-INF/tags")) {
             // Tag file packaged in JAR
-            // See https://issues.apache.org/bugzilla/show_bug.cgi?id=46471
+            // See https://bz.apache.org/bugzilla/show_bug.cgi?id=46471
             // This needs to be removed once all the broken code that depends on
             // it has been removed
             ctxt.setTagFileJarResource(path, jarResource);

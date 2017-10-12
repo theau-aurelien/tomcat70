@@ -19,6 +19,8 @@ package org.apache.coyote.http11.filters;
 import java.io.EOFException;
 import java.io.IOException;
 import java.nio.charset.Charset;
+import java.util.Locale;
+import java.util.Set;
 
 import org.apache.coyote.InputBuffer;
 import org.apache.coyote.Request;
@@ -138,18 +140,26 @@ public class ChunkedInputFilter implements InputFilter {
     private long extensionSize;
 
 
+    private final int maxSwallowSize;
+
+
     /**
      * Flag that indicates if an error has occurred.
      */
     private boolean error;
 
 
+    private final Set<String> allowedTrailerHeaders;
+
     // ----------------------------------------------------------- Constructors
 
-    public ChunkedInputFilter(int maxTrailerSize, int maxExtensionSize) {
+    public ChunkedInputFilter(int maxTrailerSize, Set<String> allowedTrailerHeaders,
+            int maxExtensionSize, int maxSwallowSize) {
         this.trailingHeaders.setLimit(maxTrailerSize);
+        this.allowedTrailerHeaders = allowedTrailerHeaders;
         this.maxExtensionSize = maxExtensionSize;
         this.maxTrailerSize = maxTrailerSize;
+        this.maxSwallowSize = maxSwallowSize;
     }
 
 
@@ -235,9 +245,14 @@ public class ChunkedInputFilter implements InputFilter {
      */
     @Override
     public long end() throws IOException {
+        long swallowed = 0;
+        int read = 0;
         // Consume extra bytes : parse the stream until the end chunk is found
-        while (doRead(readChunk, null) >= 0) {
-            // NOOP: Just consume the input
+        while ((read = doRead(readChunk, null)) >= 0) {
+            swallowed += read;
+            if (maxSwallowSize > -1 && swallowed > maxSwallowSize) {
+                throwIOException(sm.getString("inputFilter.maxSwallow"));
+            }
         }
 
         // Return the number of extra bytes which were consumed
@@ -308,8 +323,8 @@ public class ChunkedInputFilter implements InputFilter {
 
     /**
      * Parse the header of a chunk.
-     * A chunk header can look like one of the following:<br />
-     * A10CRLF<br />
+     * A chunk header can look like one of the following:<br>
+     * A10CRLF<br>
      * F23;chunk-extension to be ignoredCRLF
      *
      * <p>
@@ -376,10 +391,6 @@ public class ChunkedInputFilter implements InputFilter {
         }
 
         remaining = result;
-        if (remaining < 0) {
-            return false;
-        }
-
         return true;
     }
 
@@ -465,7 +476,7 @@ public class ChunkedInputFilter implements InputFilter {
         }
     
         // Mark the current buffer position
-        int start = trailingHeaders.getEnd();
+        int startPos = trailingHeaders.getEnd();
     
         //
         // Reading the header name
@@ -496,12 +507,8 @@ public class ChunkedInputFilter implements InputFilter {
             pos++;
     
         }
-        MessageBytes headerValue = headers.addValue(trailingHeaders.getBytes(),
-                start, trailingHeaders.getEnd() - start);
+        int colonPos = trailingHeaders.getEnd();
     
-        // Mark the current buffer position
-        start = trailingHeaders.getEnd();
-
         //
         // Reading the header value (which can be spanned over multiple lines)
         //
@@ -588,10 +595,17 @@ public class ChunkedInputFilter implements InputFilter {
     
         }
     
-        // Set the header value
-        headerValue.setBytes(trailingHeaders.getBytes(), start,
-                lastSignificantChar - start);
+        String headerName = new String(trailingHeaders.getBytes(), startPos,
+                colonPos - startPos, "ISO_8859_1");
     
+        if (allowedTrailerHeaders.contains(headerName.toLowerCase(Locale.ENGLISH))) {
+            MessageBytes headerValue = headers.addValue(headerName);
+
+            // Set the header value
+            headerValue.setBytes(trailingHeaders.getBytes(), colonPos,
+                    lastSignificantChar - colonPos);
+        }
+
         return true;
     }
 

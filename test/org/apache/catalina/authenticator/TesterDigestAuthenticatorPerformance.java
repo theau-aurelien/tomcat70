@@ -32,8 +32,8 @@ import org.apache.catalina.core.StandardContext;
 import org.apache.catalina.deploy.LoginConfig;
 import org.apache.catalina.filters.TesterHttpServletResponse;
 import org.apache.catalina.startup.TestTomcat.MapRealm;
-import org.apache.catalina.util.ConcurrentMessageDigest;
-import org.apache.catalina.util.MD5Encoder;
+import org.apache.tomcat.util.security.ConcurrentMessageDigest;
+import org.apache.tomcat.util.security.MD5Encoder;
 
 public class TesterDigestAuthenticatorPerformance {
 
@@ -263,6 +263,11 @@ public class TesterDigestAuthenticatorPerformance {
         @Override
         public String getRequestURI() {
             return CONTEXT_PATH + URI;
+        }
+
+        @Override
+        public org.apache.coyote.Request getCoyoteRequest() {
+            return new org.apache.coyote.Request();
         }
     }
 }

@@ -258,7 +258,7 @@ public class StatusTransformer {
             for (MemoryPoolMXBean memoryPoolMBean : memoryPoolMBeans.values()) {
                 MemoryUsage usage = memoryPoolMBean.getUsage();
                 writer.write("<memorypool");
-                writer.write(" name='" + memoryPoolMBean.getName() + "'");
+                writer.write(" name='" + filterXml(memoryPoolMBean.getName()) + "'");
                 writer.write(" type='" + memoryPoolMBean.getType() + "'");
                 writer.write(" usageInit='" + usage.getInit() + "'");
                 writer.write(" usageCommitted='" + usage.getCommitted() + "'");
@@ -294,7 +294,7 @@ public class StatusTransformer {
             writer.print(mBeanServer.getAttribute(tpName, "currentThreadsBusy"));
             try {
                 Object value = mBeanServer.getAttribute(tpName, "keepAliveCount");
-                writer.print(" Keeped alive sockets count: ");
+                writer.print(" Keep alive sockets count: ");
                 writer.print(value);
             } catch (Exception e) {
                 // Ignore
@@ -615,7 +615,7 @@ public class StatusTransformer {
                 if (webModuleName.startsWith("//")) {
                     webModuleName = webModuleName.substring(2);
                 }
-                int slash = webModuleName.indexOf("/");
+                int slash = webModuleName.indexOf('/');
                 if (slash == -1) {
                     count++;
                     continue;
@@ -668,7 +668,7 @@ public class StatusTransformer {
             if (name.startsWith("//")) {
                 name = name.substring(2);
             }
-            int slash = name.indexOf("/");
+            int slash = name.indexOf('/');
             if (slash != -1) {
                 hostName = name.substring(0, slash);
                 contextName = name.substring(slash);
@@ -902,6 +902,35 @@ public class StatusTransformer {
         }
         return (result.toString());
 
+    }
+
+
+    /**
+     * Escape the 5 entities defined by XML.
+     * @param s The message string to be filtered
+     * @return filtered XML content
+     */
+    public static String filterXml(String s) {
+        if (s == null)
+            return "";
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '<') {
+                sb.append("&lt;");
+            } else if (c == '>') {
+                sb.append("&gt;");
+            } else if (c == '\'') {
+                sb.append("&apos;");
+            } else if (c == '&') {
+                sb.append("&amp;");
+            } else if (c == '"') {
+                sb.append("&quot;");
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 
 

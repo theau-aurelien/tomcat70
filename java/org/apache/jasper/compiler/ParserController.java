@@ -25,7 +25,7 @@ import java.util.jar.JarFile;
 
 import org.apache.jasper.JasperException;
 import org.apache.jasper.JspCompilationContext;
-import org.apache.jasper.util.ExceptionUtils;
+import org.apache.jasper.runtime.ExceptionUtils;
 import org.apache.jasper.xmlparser.XMLEncodingDetector;
 import org.xml.sax.Attributes;
 
@@ -541,7 +541,7 @@ class ParserController implements TagConstants {
         fileName = isAbsolute ? fileName 
                 : baseDirStack.peek() + fileName;
         String baseDir = 
-            fileName.substring(0, fileName.lastIndexOf("/") + 1);
+            fileName.substring(0, fileName.lastIndexOf('/') + 1);
         baseDirStack.push(baseDir);
         return fileName;
     }

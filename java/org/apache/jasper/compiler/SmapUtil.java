@@ -5,9 +5,9 @@
  * The ASF licenses this file to You under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with
  * the License.  You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -36,7 +36,7 @@ import org.apache.jasper.JspCompilationContext;
 /**
  * Contains static utilities for generating SMAP data based on the
  * current version of Jasper.
- * 
+ *
  * @author Jayson Falkner
  * @author Shawn Bayern
  * @author Robert Field (inner SDEInstaller class)
@@ -76,7 +76,7 @@ public class SmapUtil {
 
         // set up our SMAP generator
         SmapGenerator g = new SmapGenerator();
-        
+
         /** Disable reading of input SMAP because:
             1. There is a bug here: getRealPath() is null if .jsp is in a jar
                Bugzilla 14660.
@@ -220,19 +220,37 @@ public class SmapUtil {
             addSDE();
 
             // write result
-            FileOutputStream outStream = new FileOutputStream(outClassFile);
-            outStream.write(gen, 0, genPos);
-            outStream.close();
+            FileOutputStream outStream = null;
+            try {
+                outStream = new FileOutputStream(outClassFile);
+                outStream.write(gen, 0, genPos);
+            } finally {
+                if (outStream != null) {
+                    try {
+                        outStream.close();
+                    } catch (Exception e) {
+                    }
+                }
+            }
         }
 
         static byte[] readWhole(File input) throws IOException {
-            FileInputStream inStream = new FileInputStream(input);
             int len = (int)input.length();
             byte[] bytes = new byte[len];
-            if (inStream.read(bytes, 0, len) != len) {
-                throw new IOException("expected size: " + len);
+            FileInputStream inStream = null;
+            try {
+                inStream = new FileInputStream(input);
+                if (inStream.read(bytes, 0, len) != len) {
+                    throw new IOException("expected size: " + len);
+                }
+            } finally {
+                if (inStream != null) {
+                    try {
+                        inStream.close();
+                    } catch (Exception e) {
+                    }
+                }
             }
-            inStream.close();
             return bytes;
         }
 
@@ -250,7 +268,7 @@ public class SmapUtil {
                 // if "SourceDebugExtension" symbol not there add it
                 writeUtf8ForSDE();
 
-                // increment the countantPoolCount
+                // increment the constantPoolCount
                 sdeIndex = constantPoolCount;
                 ++constantPoolCount;
                 randomAccessWriteU2(constantPoolCountPos, constantPoolCount);
@@ -603,7 +621,7 @@ public class SmapUtil {
             int iInputStartLine = mark.getLineNumber();
             int iOutputStartLine = n.getBeginJavaLine();
             int iOutputLineIncrement = breakAtLF? 1: 0;
-            smap.addLineData(iInputStartLine, fileName, 1, iOutputStartLine, 
+            smap.addLineData(iInputStartLine, fileName, 1, iOutputStartLine,
                              iOutputLineIncrement);
 
             // Output additional mappings in the text
@@ -705,5 +723,5 @@ public class SmapUtil {
             return map;
         }
     }
-    
+
 }

@@ -34,7 +34,7 @@
                 writeable="false"/>                               
 
      <attribute name="filterInitParameterMap"
-                description="Return the initiaization parameters associated with this filter"
+                description="Return the initialization parameters associated with this filter"
                 type="java.util.Map"
                 writeable="false" />
                     
@@ -112,8 +112,12 @@
                description="Object names of all children"
                type="[Ljavax.management.ObjectName;"/>
                
+    <attribute name="clearReferencesRmiTargets"
+               description="Should Tomcat look for memory leaks in RMI Targets and clear them if found as a work around for application coding errors?"
+               type="boolean"/>
+
     <attribute name="clearReferencesStatic"
-               description="Should Tomcat attempt to null out any static or final fields from loaded classes when a web application is stopped as a work around for apparent garbage collection bugs and application coding errors?"
+               description="Deprecated. Will be removed in Tomcat 8.5. Should Tomcat attempt to null out any static or final fields from loaded classes when a web application is stopped as a work around for apparent garbage collection bugs and application coding errors?"
                type="boolean"/>
                
     <attribute name="clearReferencesStopThreads"
@@ -190,8 +194,8 @@
                type="boolean" />
                
     <attribute name="instanceManager"
-               description="Object that creates and destroys servlets, filters, and listeners. Include dependency injection and postConstruct/preDestory handling"
-               type="org.apache.catalina.instanceManagement.InstanceManager" />
+               description="Object that creates and destroys servlets, filters, and listeners. Include dependency injection and postConstruct/preDestroy handling"
+               type="org.apache.tomcat.InstanceManager" />
                               
     <attribute name="javaVMs"
                description="The Java virtual machines on which this module is running"
@@ -221,6 +225,14 @@
                description="The object used for mapping"
                type="java.lang.Object"/>
       
+    <attribute name="mapperContextRootRedirectEnabled"
+               description="Should the Mapper be used for context root redirects"
+               type="boolean" />
+
+    <attribute name="mapperDirectoryRedirectEnabled"
+               description="Should the Mapper be used for directory redirects"
+               type="boolean" />
+
     <attribute name="namingContextListener"
                description="Associated naming context listener."
                type="org.apache.catalina.core.NamingContextListener" />
@@ -393,6 +405,10 @@
     <attribute name="useNaming"
                description="Create a JNDI naming context for this application?"
                is="true"
+               type="boolean"/>
+
+    <attribute name="useRelativeRedirects"
+               description="When generating location headers for 302 responses, should a relative URI be used?"
                type="boolean"/>
 
     <attribute name="webappVersion"
@@ -817,7 +833,7 @@
     </operation>
     
     <operation name="reload"
-               description="Reload the webapplication"
+               description="Reload the web application"
                impact="ACTION"
                returnType="void">
     </operation>
@@ -1405,6 +1421,16 @@
                type="java.lang.String"
                writeable="false"/>
                
+    <attribute name="serverBuilt"
+               description="Tomcat server built timestamp"
+               type="java.lang.String"
+               writeable="false"/>
+
+    <attribute name="serverNumber"
+               description="Tomcat server's version number"
+               type="java.lang.String"
+               writeable="false"/>
+
     <attribute name="serviceNames"
                description="Object names of all services we know about"
                type="[Ljavax.management.ObjectName;"
@@ -1692,7 +1718,7 @@
           
     <attribute name="singleThreadModel"
                description="Does this servlet implement the SingleThreadModel interface?"
-               type="boolean"
+               type="java.lang.Boolean"
                is="true"
                writeable="false" />
 
@@ -1796,7 +1822,7 @@
                impact="ACTION"
                returnType="java.lang.String">
       <parameter name="name"
-                 description="Security role reference used within this servle"
+                 description="Security role reference used within this servlet"
                  type="java.lang.String"/>
     </operation>
     
@@ -1838,7 +1864,7 @@
                impact="ACTION"
                returnType="void">
       <parameter name="name"
-                 description="Security role used within this servlet to be removeds"
+                 description="Security role used within this servlet to be removed"
                  type="java.lang.String"/>
     </operation>
     

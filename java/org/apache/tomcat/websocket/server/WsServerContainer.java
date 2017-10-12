@@ -26,6 +26,7 @@ import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadFactory;
@@ -51,6 +52,7 @@ import javax.websocket.server.ServerEndpointConfig.Configurator;
 
 import org.apache.juli.logging.Log;
 import org.apache.juli.logging.LogFactory;
+import org.apache.tomcat.InstanceManager;
 import org.apache.tomcat.util.res.StringManager;
 import org.apache.tomcat.websocket.WsSession;
 import org.apache.tomcat.websocket.WsWebSocketContainer;
@@ -84,12 +86,12 @@ public class WsServerContainer extends WsWebSocketContainer
     private final ServletContext servletContext;
     private final Map<String,ServerEndpointConfig> configExactMatchMap =
             new ConcurrentHashMap<String, ServerEndpointConfig>();
-    private final ConcurrentHashMap<Integer,SortedSet<TemplatePathMatch>>
+    private final ConcurrentMap<Integer,SortedSet<TemplatePathMatch>>
             configTemplateMatchMap = new ConcurrentHashMap<Integer, SortedSet<TemplatePathMatch>>();
     private volatile boolean enforceNoAddAfterHandshake =
             org.apache.tomcat.websocket.Constants.STRICT_SPEC_COMPLIANCE;
     private volatile boolean addAllowed = true;
-    private final ConcurrentHashMap<String,Set<WsSession>> authenticatedSessions =
+    private final ConcurrentMap<String,Set<WsSession>> authenticatedSessions =
             new ConcurrentHashMap<String, Set<WsSession>>();
     private final ExecutorService executorService;
     private final ThreadGroup threadGroup;
@@ -98,6 +100,7 @@ public class WsServerContainer extends WsWebSocketContainer
     WsServerContainer(ServletContext servletContext) {
 
         this.servletContext = servletContext;
+        setInstanceManager((InstanceManager) servletContext.getAttribute(InstanceManager.class.getName()));
 
         // Configure servlet context wide defaults
         String value = servletContext.getInitParameter(
@@ -140,7 +143,7 @@ public class WsServerContainer extends WsWebSocketContainer
 
         fr.addMappingForUrlPatterns(types, true, "/*");
 
-        // Use a per web application executor for any threads the the WebSocket
+        // Use a per web application executor for any threads that the WebSocket
         // server code needs to create. Group all of the threads under a single
         // ThreadGroup.
         StringBuffer threadGroupName = new StringBuffer("WebSocketServer-");
@@ -181,6 +184,16 @@ public class WsServerContainer extends WsWebSocketContainer
         }
         String path = sec.getPath();
 
+        // Add method mapping to user properties
+        PojoMethodMapping methodMapping = new PojoMethodMapping(sec.getEndpointClass(),
+                sec.getDecoders(), path);
+        if (methodMapping.getOnClose() != null || methodMapping.getOnOpen() != null
+                || methodMapping.getOnError() != null || methodMapping.hasMessageHandlers()) {
+            sec.getUserProperties().put(
+                    PojoEndpointServer.POJO_METHOD_MAPPING_KEY,
+                    methodMapping);
+        }
+
         UriTemplate uriTemplate = new UriTemplate(path);
         if (uriTemplate.hasParameters()) {
             Integer key = Integer.valueOf(uriTemplate.getSegmentCount());
@@ -197,7 +210,9 @@ public class WsServerContainer extends WsWebSocketContainer
             if (!templateMatches.add(new TemplatePathMatch(sec, uriTemplate))) {
                 // Duplicate uriTemplate;
                 throw new DeploymentException(
-                        sm.getString("serverContainer.duplicatePaths", path));
+                        sm.getString("serverContainer.duplicatePaths", path,
+                                     sec.getEndpointClass(),
+                                     sec.getEndpointClass()));
             }
         } else {
             // Exact match
@@ -205,7 +220,9 @@ public class WsServerContainer extends WsWebSocketContainer
             if (old != null) {
                 // Duplicate path mappings
                 throw new DeploymentException(
-                        sm.getString("serverContainer.duplicatePaths", path));
+                        sm.getString("serverContainer.duplicatePaths", path,
+                                     old.getEndpointClass(),
+                                     sec.getEndpointClass()));
             }
         }
 
@@ -234,10 +251,6 @@ public class WsServerContainer extends WsWebSocketContainer
         // Validate encoders
         validateEncoders(annotation.encoders());
 
-        // Method mapping
-        PojoMethodMapping methodMapping = new PojoMethodMapping(pojo,
-                annotation.decoders(), path);
-
         // ServerEndpointConfig
         ServerEndpointConfig sec;
         Class<? extends Configurator> configuratorClazz =
@@ -264,9 +277,6 @@ public class WsServerContainer extends WsWebSocketContainer
                 subprotocols(Arrays.asList(annotation.subprotocols())).
                 configurator(configurator).
                 build();
-        sec.getUserProperties().put(
-                PojoEndpointServer.POJO_METHOD_MAPPING_KEY,
-                methodMapping);
 
         addEndpoint(sec);
     }
@@ -276,13 +286,42 @@ public class WsServerContainer extends WsWebSocketContainer
     public void destroy() {
         shutdownExecutor();
         super.destroy();
+        // If the executor hasn't fully shutdown it won't be possible to
+        // destroy this thread group as there will still be threads running.
+        // Mark the thread group as daemon one, so that it destroys itself
+        // when thread count reaches zero.
+        // Synchronization on threadGroup is needed, as there is a race between
+        // destroy() call from termination of the last thread in thread group
+        // marked as daemon versus the explicit destroy() call.
+        int threadCount = threadGroup.activeCount();
+        boolean success = false;
         try {
-            threadGroup.destroy();
-        } catch (IllegalThreadStateException itse) {
-            // If the executor hasn't fully shutdown it won't be possible to
-            // destroy this thread group as there will still be threads running
+            while (true) {
+                int oldThreadCount = threadCount;
+                synchronized (threadGroup) {
+                    if (threadCount > 0) {
+                        Thread.yield();
+                        threadCount = threadGroup.activeCount();
+                    }
+                    if (threadCount > 0 && threadCount != oldThreadCount) {
+                        // Value not stabilized. Retry.
+                        continue;
+                    }
+                    if (threadCount > 0) {
+                        threadGroup.setDaemon(true);
+                    } else {
+                        threadGroup.destroy();
+                        success = true;
+                    }
+                    break;
+                }
+            }
+        } catch (IllegalThreadStateException exception) {
+            // Fall-through
+        }
+        if (!success) {
             log.warn(sm.getString("serverContainer.threadGroupNotDestroyed",
-                    threadGroup.getName()));
+                    threadGroup.getName(), Integer.valueOf(threadCount)));
         }
     }
 
@@ -292,6 +331,24 @@ public class WsServerContainer extends WsWebSocketContainer
     }
 
 
+    /**
+     * Until the WebSocket specification provides such a mechanism, this Tomcat
+     * proprietary method is provided to enable applications to programmatically
+     * determine whether or not to upgrade an individual request to WebSocket.
+     * <p>
+     * Note: This method is not used by Tomcat but is used directly by
+     *       third-party code and must not be removed.
+     *
+     * @param request The request object to be upgraded
+     * @param response The response object to be populated with the result of
+     *                 the upgrade
+     * @param sec The server endpoint to use to process the upgrade request
+     * @param pathParams The path parameters associated with the upgrade request
+     *
+     * @throws ServletException If a configuration error prevents the upgrade
+     *         from taking place
+     * @throws IOException If an I/O error occurs during the upgrade process
+     */
     public void doUpgrade(HttpServletRequest request,
             HttpServletResponse response, ServerEndpointConfig sec,
             Map<String,String> pathParams)
@@ -311,8 +368,7 @@ public class WsServerContainer extends WsWebSocketContainer
         // Check an exact match. Simple case as there are no templates.
         ServerEndpointConfig sec = configExactMatchMap.get(path);
         if (sec != null) {
-            return new WsMappingResult(sec,
-                    Collections.<String, String> emptyMap());
+            return new WsMappingResult(sec, Collections.<String, String>emptyMap());
         }
 
         // No exact match. Need to look for template matches.
@@ -349,13 +405,6 @@ public class WsServerContainer extends WsWebSocketContainer
         if (sec == null) {
             // No match
             return null;
-        }
-
-        if (!PojoEndpointServer.class.isAssignableFrom(sec.getEndpointClass())) {
-            // Need to make path params available to POJO
-            sec.getUserProperties().put(
-                    PojoEndpointServer.POJO_PATH_PARAM_KEY,
-                    pathParams);
         }
 
         return new WsMappingResult(sec, pathParams);

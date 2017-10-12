@@ -27,7 +27,7 @@ import java.util.jar.JarFile;
 
 import org.apache.jasper.JasperException;
 import org.apache.jasper.JspCompilationContext;
-import org.apache.jasper.util.ExceptionUtils;
+import org.apache.jasper.runtime.ExceptionUtils;
 import org.apache.juli.logging.Log;
 import org.apache.juli.logging.LogFactory;
 
@@ -272,10 +272,30 @@ class JspReader {
         return caw.toString();
     }
 
-    int peekChar() throws JasperException {
-        if (!hasMoreInput())
-            return -1;
-        return current.stream[current.cursor];
+    /**
+     * Read ahead one character without moving the cursor.
+     *
+     * @return The next character or -1 if no further input is available
+     */
+    int peekChar() {
+        return peekChar(0);
+    }
+
+    /**
+     * Read ahead the given number of characters without moving the cursor.
+     *
+     * @param readAhead The number of characters to read ahead. NOTE: This is
+     *                  zero based.
+     *
+     * @return The requested character or -1 if the end of the input is reached
+     *         first
+     */
+    int peekChar(int readAhead) {
+        int target = current.cursor + readAhead;
+        if (target < current.stream.length) {
+            return current.stream[target];
+        }
+        return -1;
     }
 
     Mark mark() {
@@ -444,15 +464,17 @@ class JspReader {
 
     /**
      * Skip until the given string is matched in the stream, but ignoring
-     * chars initially escaped by a '\'.
+     * chars initially escaped by a '\' and any EL expressions.
      * When returned, the context is positioned past the end of the match.
      *
      * @param s The String to match.
+     * @param ignoreEL <code>true</code> if something that looks like EL should
+     *                 not be treated as EL.
      * @return A non-null <code>Mark</code> instance (positioned immediately
      *         before the search string) if found, <strong>null</strong>
      *         otherwise.
      */
-    Mark skipUntilIgnoreEsc(String limit) throws JasperException {
+    Mark skipUntilIgnoreEsc(String limit, boolean ignoreEL) throws JasperException {
         Mark ret = mark();
         int limlen = limit.length();
         int ch;
@@ -462,7 +484,13 @@ class JspReader {
         for (ch = nextChar(ret) ; ch != -1 ; prev = ch, ch = nextChar(ret)) {
             if (ch == '\\' && prev == '\\') {
                 ch = 0;                // Double \ is not an escape char anymore
-            } else if (ch == firstChar && prev != '\\') {
+            } else if (prev == '\\') {
+                continue;
+            } else if (!ignoreEL && (ch == '$' || ch == '#') && peekChar() == '{' ) {
+                // Move beyond the '{'
+                nextChar();
+                skipELExpression();
+            } else if (ch == firstChar) {
                 for (int i = 1 ; i < limlen ; i++) {
                     if (peekChar() == limit.charAt(i))
                         nextChar();
@@ -491,6 +519,46 @@ class JspReader {
                 ret = null;
         }
         return ret;
+    }
+
+    /**
+     * Parse ELExpressionBody that is a body of ${} or #{} expression. Initial
+     * reader position is expected to be just after '${' or '#{' characters.
+     * <p>
+     * In case of success, this method returns <code>Mark</code> for the last
+     * character before the terminating '}' and reader is positioned just after
+     * the '}' character. If no terminating '}' is encountered, this method
+     * returns <code>null</code>.
+     *
+     * @return Mark for the last character of EL expression or <code>null</code>
+     */
+    Mark skipELExpression() throws JasperException {
+        // ELExpressionBody.
+        //  Starts with "#{" or "${".  Ends with "}".
+        //  May contain quoted "{", "}", '{', or '}'.
+        Mark last = mark();
+        boolean singleQuoted = false, doubleQuoted = false;
+        int currentChar;
+        do {
+            currentChar = nextChar(last);
+            while (currentChar == '\\' && (singleQuoted || doubleQuoted)) {
+                // skip character following '\' within quotes
+                // No need to update 'last', as neither of these characters
+                // can be the closing '}'.
+                nextChar();
+                currentChar = nextChar();
+            }
+            if (currentChar == -1) {
+                return null;
+            }
+            if (currentChar == '"' && !singleQuoted) {
+                doubleQuoted = !doubleQuoted;
+            } else if (currentChar == '\'' && !doubleQuoted) {
+                singleQuoted = !singleQuoted;
+            }
+        } while (currentChar != '}' || (singleQuoted || doubleQuoted));
+
+        return last;
     }
 
     final boolean isSpace() throws JasperException {
@@ -643,7 +711,7 @@ class JspReader {
         int fileid = registerSourceFile(longName);
 
         if (fileid == -1) {
-            // Bugzilla 37407: http://issues.apache.org/bugzilla/show_bug.cgi?id=37407
+            // Bugzilla 37407: http://bz.apache.org/bugzilla/show_bug.cgi?id=37407
             if(reader != null) {
                 try {
                     reader.close();

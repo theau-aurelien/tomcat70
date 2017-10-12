@@ -101,7 +101,7 @@
 
   <p>If no version is specified then the <em>context name</em> is always the
   same as the <em>context path</em>. If the <em>context path</em> is the empty
-  string them the <em>base name</em> will be ROOT (always in upper case)
+  string then the <em>base name</em> will be ROOT (always in upper case)
   otherwise the <em>base name</em> will be the <em>context path</em> with the
   leading '/' removed and any remaining '/' characters replaced with '#'.</p>
 
@@ -269,6 +269,12 @@
         The default is <code>false</code></p>
       </attribute>
 
+      <attribute name="altDDName" required="false">
+        <p>The absolute path to the alternative deployment descriptor for this
+        context. This overrides the default deployment descriptor located at
+        <code>/WEB-INF/web.xml</code>.</p>
+      </attribute>
+
       <attribute name="backgroundProcessorDelay" required="false">
         <p>This value represents the delay in seconds between the
         invocation of the backgroundProcess method on this context and
@@ -334,6 +340,14 @@
         sufficient.</p>
       </attribute>
 
+      <attribute name="dispatchersUseEncodedPaths" required="false">
+        <p>Controls whether paths used in calls to obtain a request dispatcher
+        ares expected to be encoded. This affects both how Tomcat handles calls
+        to obtain a request dispatcher as well as how Tomcat generates paths
+        used to obtain request dispatchers internally. If not specified, the
+        default value of <code>true</code> is used.</p>
+      </attribute>
+
       <attribute name="failCtxIfServletStartFails" required="false">
         <p>Set to <code>true</code> to have the context fail its startup if any
         servlet that has load-on-startup &gt;=0 fails its own startup.</p>
@@ -357,6 +371,22 @@
         starts. The effective web.xml is the result of combining the
         application's web.xml with any defaults configured by Tomcat and any
         web-fragment.xml files and annotations discovered. If not specified, the
+        default value of <code>false</code> is used.</p>
+      </attribute>
+
+      <attribute name="mapperContextRootRedirectEnabled" required="false">
+        <p>If enabled, requests for a web application context root will be
+        redirected (adding a trailing slash) if necessary by the Mapper rather
+        than the default Servlet. This is more efficient but has the side effect
+        of confirming that the context path exists. If not specified, the
+        default value of <code>true</code> is used.</p>
+      </attribute>
+
+      <attribute name="mapperDirectoryRedirectEnabled" required="false">
+        <p>If enabled, requests for a web application directory will be
+        redirected (adding a trailing slash) if necessary by the Mapper rather
+        than the default Servlet. This is more efficient but has the side effect
+        of confirming that the directory is exists. If not specified, the
         default value of <code>false</code> is used.</p>
       </attribute>
 
@@ -476,15 +506,23 @@
       </attribute>
 
       <attribute name="sessionCookiePathUsesTrailingSlash" required="false">
-        <p>Some browsers, such as IE, will send a session cookie for a context
-        with a path of /foo with a request to /foobar. To prevent this, Tomcat
-        will add a trailing slash to the path associated with the session cookie
-        so, in the above example, the cookie path becomes /foo/. However, with a
-        cookie path of /foo/, IE will no longer send the cookie with a request
-        to /foo. This should not be a problem unless there is a servlet mapped
-        to /*. In this case this feature will need to be disabled. The default
-        value for this attribute is <code>true.</code> To disable this feature,
-        set the attribute to <code>false</code>.</p>
+        <p>Some browsers, such as Internet Explorer, Safari and Edge, will send
+        a session cookie for a context with a path of <code>/foo</code> with a
+        request to <code>/foobar</code> in violation of RFC6265. This could
+        expose a session ID from an application deployed at <code>/foo</code> to
+        an application deployed at <code>/foobar</code>. If the application
+        deployed at <code>/foobar</code> is untrusted, this could create a
+        security risk. However, it should be noted that RFC 6265, section 8.5
+        makes clear that path alone should not be view as sufficient to prevent
+        untrusted applications accessing cookies from other applications. To
+        mitigate this risk, this attribute may be set to <code>true</code> and
+        Tomcat will add a trailing slash to the path associated with the session
+        cookie so, in the above example, the cookie path becomes /foo/. However,
+        with a cookie path of /foo/, browsers will no longer send the cookie
+        with a request to /foo. This should not be a problem unless there is a
+        servlet mapped to /*. In this case this attribute will need to be set to
+        <code>false</code> to disable this feature. The default value for this
+        attribute is <code>false</code>.</p>
       </attribute>
 
       <attribute name="swallowAbortedUploads" required="false">
@@ -533,6 +571,43 @@
        <p>Should the HttpOnly flag be set on session cookies to prevent client
           side script from accessing the session ID? Defaults to
           <code>true</code>.</p>
+      </attribute>
+
+      <attribute name="useRelativeRedirects" required="false">
+        <p>Controls whether HTTP 1.1 and later location headers generated by a
+        call to
+        <code>javax.servlet.http.HttpServletResponse#sendRedirect(String)</code>
+        will use relative or absolute redirects. Relative redirects are more
+        efficient but may not work with reverse proxies that change the context
+        path. It should be noted that it is not recommended to use a reverse
+        proxy to change the context path because of the multiple issues it
+        creates. Absolute redirects should work with reverse proxies that change
+        the context path but may cause issues with the
+        <code>org.apache.catalina.filters.RemoteIpFilter</code> if the filter is
+         changing the scheme and/or port. If the
+        <code>org.apache.catalina.STRICT_SERVLET_COMPLIANCE</code>
+        <a href="systemprops.html">system property</a> is set to
+        <code>true</code>, the default value of this attribute will be
+        <code>false</code>, else the default value will be <code>true</code>.
+        </p>
+      </attribute>
+
+      <attribute name="validateClientProvidedNewSessionId" required="false">
+        <p>When a client provides the ID for a new session, this attribute
+        controls whether that ID is validated. The only use case for using a
+        client provided session ID is to have a common session ID across
+        multiple web applications. Therefore, any client provided session ID
+        should already exist in another web application. If this check is
+        enabled, the client provided session ID will only be used if the session
+        ID exists in at least one other web application for the current host.
+        Note that the following additional tests are always applied,
+        irrespective of this setting:</p>
+        <ul>
+          <li>The session ID is provided by a cookie</li>
+          <li>The session cookie has a path of {@code /}</li>
+        </ul>
+        <p>If not specified, the default value of <code>true</code> will be
+        used.</p>
       </attribute>
 
       <attribute name="wrapperClass" required="false">
@@ -667,7 +742,7 @@
 
         <p>Please note that setting this to <code>true</code> has some side
         effects, including the disabling of JSP reloading in a running server:
-        see <a href="http://issues.apache.org/bugzilla/show_bug.cgi?id=37668">
+        see <a href="http://bz.apache.org/bugzilla/show_bug.cgi?id=37668">
         Bugzilla 37668</a>.</p>
 
         <p>Please note that setting this flag to true in applications that are
@@ -704,7 +779,7 @@
         of the flag is <code>true</code>.</p>
       </attribute>
 
-      <attribute name="clearReferencesHttpClientKeepAliveThread" required = "false">
+      <attribute name="clearReferencesHttpClientKeepAliveThread" required="false">
         <p>If <code>true</code> and an <code>sun.net.www.http.HttpClient</code>
         keep-alive timer thread has been started by this web application and is
         still running, Tomcat will change the context class loader for that
@@ -716,7 +791,17 @@
         <code>true</code> will be used.</p>
       </attribute>
 
-      <attribute name="clearReferencesStatic" required = "false">
+      <attribute name="clearReferencesRmiTargets" required="false">
+        <p>If <code>true</code>, Tomcat looks for memory leaks associated with
+        RMI Targets and clears any it finds. This feature uses reflection to
+        identify the leaks and therefore requires that the command line option
+        <code>-XaddExports:java.rmi/sun.rmi.transport=ALL-UNNAMED</code> is set
+        when running on Java 9 and above. Applications without memory leaks
+        should operate correctly with this attribute set to <code>false</code>.
+        If not specified, the default value of <code>true</code> will be used.</p>
+      </attribute>
+
+      <attribute name="clearReferencesStatic" required="false">
         <p>If <code>true</code>, Tomcat attempts to null out any static or final
         fields from loaded classes when a web application is stopped as a work
         around for apparent garbage collection bugs and application coding
@@ -725,9 +810,11 @@
         JVMs should operate correctly with this attribute set to
         <code>false</code>. If not specified, the default value of
         <code>false</code> will be used.</p>
+        <p>This attribute has been deprecated and will be removed in Tomcat
+        8.5.</p>
       </attribute>
 
-      <attribute name="clearReferencesStopThreads" required = "false">
+      <attribute name="clearReferencesStopThreads" required="false">
         <p>If <code>true</code>, Tomcat attempts to terminate threads that have
         been started by the web application. Stopping threads is performed via
         the deprecated (for good reason) <code>Thread.stop()</code> method and
@@ -740,7 +827,7 @@
         <code>Thread.stop()</code> is called on any remaining threads.</p>
       </attribute>
 
-      <attribute name="clearReferencesStopTimerThreads" required = "false">
+      <attribute name="clearReferencesStopTimerThreads" required="false">
         <p>If <code>true</code>, Tomcat attempts to terminate
         <code>java.util.Timer</code> threads that have been started by the web
         application. Unlike standard threads, timer threads can be stopped
@@ -770,7 +857,7 @@
         createSubContext(), destroySubContext() or close() will trigger a
         <code>javax.naming.OperationNotSupportedException</code> as required by
         section EE.5.3.4 of the Java EE specification. This exception can be
-        disabled by setting this attribute to true in which case any calls to
+        disabled by setting this attribute to false in which case any calls to
         modify the JNDI context will return <b>without</b> making any changes
         and methods that return values will return <code>null</code>. If not
         specified, the specification compliant default of <code>true</code> will
@@ -804,9 +891,7 @@
         file will not be unpacked. If <code>true</code>, the value of the owning
         <a href="host.html">Host</a>&apos;s <strong>unpackWARs</strong>
         attribute will determine if the WAR is unpacked. If not specified, the
-        default value is <code>true</code>. Note that WAR files located outside
-        of a <a href="host.html">Host</a>&apos;s <strong>appBase</strong> are
-        never unpacked.</p>
+        default value is <code>true</code>.</p>
       </attribute>
 
       <attribute name="useNaming" required="false">
@@ -1150,7 +1235,7 @@
 
       <attribute name="auth" required="false">
         <p>Specify whether the web Application code signs on to the
-        corresponding resource manager programatically, or whether the
+        corresponding resource manager programmatically, or whether the
         Container will sign on to the resource manager on behalf of the
         application.  The value of this attribute must be
         <code>Application</code> or <code>Container</code>.  This
@@ -1165,7 +1250,7 @@
         it is no longer required. This is intended to speed up clean-up of
         resources that would otherwise happen as part of garbage collection.
         This attribute is ignored if the <code>singleton</code> attribute is
-        false. If not specificed, no default is defined and no close method will
+        false. If not specified, no default is defined and no close method will
         be called.</p>
         <p>For Apache Commons DBCP and Apache Tomcat JDBC connection pools
         you can use <code>closeMethod="close"</code>.</p>
@@ -1359,8 +1444,8 @@ for details.</p>
       <li><code>scanAllDirectories="true"</code> on the <a href="jar-scanner.html">JarScanner</a></li>
     </ul>
     <p>To illustrate this feature, here is an example of a standard maven webapp source tree:</p>
-<source>
-mywebapp/
+
+<source>mywebapp/
          src/
              main/
                   java/
@@ -1371,25 +1456,24 @@ mywebapp/
          target/
                 classes/
 </source>
+
     <p>To deploy such an application (assuming it also uses the log4j maven artefact),
     the context configuration looks like:</p>
-<source>
-&lt;Context path="/mywebapp" docBase="/Users/theuser/mywebapp/src/main/webapp" >
-  &lt;Resources className="org.apache.naming.resources.VirtualDirContext"
-    extraResourcePaths=
-      "/WEB-INF/classes=/Users/theuser/mywebapp/target/classes" />
-  &lt;Loader className="org.apache.catalina.loader.VirtualWebappLoader"
-    virtualClasspath="/Users/theuser/mywebapp/target/classes;
-      /Users/theuser/.m2/repository/log4j/log4j/1.2.15/log4j-1.2.15.jar" />
-  &lt;JarScanner scanAllDirectories="true" />
-&lt;/Context>
-</source>
+
+<source wrapped="true"><![CDATA[<Context path="/mywebapp" docBase="/Users/theuser/mywebapp/src/main/webapp">
+  <Resources className="org.apache.naming.resources.VirtualDirContext"
+    extraResourcePaths="/WEB-INF/classes=/Users/theuser/mywebapp/target/classes" />
+  <Loader className="org.apache.catalina.loader.VirtualWebappLoader"
+    virtualClasspath="/Users/theuser/mywebapp/target/classes;/Users/theuser/.m2/repository/log4j/log4j/1.2.15/log4j-1.2.15.jar" />
+  <JarScanner scanAllDirectories="true" />
+</Context>
+]]></source>
 
     <p>Here is another example where the webapp serves pictures under /pictures and movies
     under /movies and also depends on another maven project mylib that would normally
     produce a jar to be packaged in WEB-INF/lib:</p>
-<source>
-mylib/
+
+<source>mylib/
       src/
           main/
                java/
@@ -1411,25 +1495,17 @@ mywebapp/
          target/
                 classes/
 </source>
+
     <p>The configuration is:</p>
 
-<source wrapped="true">
-&lt;Context path="/mywebapp" docBase="/Users/theuser/mywebapp/src/main/webapp" >
-<indent>
-  &lt;Resources className="org.apache.naming.resources.VirtualDirContext"
-    <indent><outdent>extraResourcePaths="/WEB-INF/classes=/Users/theuser/mywebapp/target/classes,/pictures=/Users/theuser/mypictures,/movies=/Users/theuser/mymovies"</outdent></indent>
-    <indent>/></indent>
-</indent>
-<indent>
-  &lt;Loader className="org.apache.catalina.loader.VirtualWebappLoader"
-    <indent><outdent>virtualClasspath="/Users/theuser/mywebapp/target/classes;/Users/theuser/mylib/target/classes;/Users/theuser/.m2/repository/log4j/log4j/1.2.15/log4j-1.2.15.jar"</outdent></indent>
-    <indent>/></indent>
-</indent>
-<indent>
-  &lt;JarScanner scanAllDirectories="true" />
-</indent>
-&lt;/Context>
-</source>
+<source wrapped="true"><![CDATA[<Context path="/mywebapp" docBase="/Users/theuser/mywebapp/src/main/webapp">
+  <Resources className="org.apache.naming.resources.VirtualDirContext"
+    extraResourcePaths="/WEB-INF/classes=/Users/theuser/mywebapp/target/classes,/pictures=/Users/theuser/mypictures,/movies=/Users/theuser/mymovies" />
+  <Loader className="org.apache.catalina.loader.VirtualWebappLoader"
+   virtualClasspath="/Users/theuser/mywebapp/target/classes;/Users/theuser/mylib/target/classes;/Users/theuser/.m2/repository/log4j/log4j/1.2.15/log4j-1.2.15.jar" />
+  <JarScanner scanAllDirectories="true" />
+</Context>
+]]></source>
 
     <p>Note that resources in mylib/target/classes/META-INF/resources/ are mapped to / as
     required by servlet 3 specification.</p>

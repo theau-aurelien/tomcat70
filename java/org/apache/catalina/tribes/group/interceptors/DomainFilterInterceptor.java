@@ -17,6 +17,7 @@
 package org.apache.catalina.tribes.group.interceptors;
 
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.catalina.tribes.ChannelMessage;
 import org.apache.catalina.tribes.Member;
@@ -40,11 +41,20 @@ public class DomainFilterInterceptor extends ChannelInterceptorBase {
     protected Membership membership = null;
     
     protected byte[] domain = new byte[0];
+    protected int logInterval = 100;
+    private final AtomicInteger logCounter = new AtomicInteger(logInterval);
 
     @Override
     public void messageReceived(ChannelMessage msg) {
-        //should we filter incoming based on domain?
-        super.messageReceived(msg);
+        if (Arrays.equals(domain, msg.getAddress().getDomain())) {
+            super.messageReceived(msg);
+        } else {
+            if (logCounter.incrementAndGet() >= logInterval) {
+                logCounter.set(0);
+                if (log.isWarnEnabled())
+                    log.warn("Received message from cluster["+msg.getAddress()+"] was refused.");
+            }
+        }
     }//messageReceived
 
 
@@ -69,7 +79,7 @@ public class DomainFilterInterceptor extends ChannelInterceptorBase {
         boolean notify = false;
         synchronized (membership) {
             notify = Arrays.equals(domain,member.getDomain());
-            membership.removeMember((MemberImpl)member);
+            if ( notify ) membership.removeMember((MemberImpl)member);
         }
         if ( notify ) super.memberDisappeared(member);
     }
@@ -119,6 +129,14 @@ public class DomainFilterInterceptor extends ChannelInterceptorBase {
             setDomain(org.apache.catalina.tribes.util.Arrays.fromString(domain));
         else
             setDomain(org.apache.catalina.tribes.util.Arrays.convert(domain));
+    }
+
+    public int getLogInterval() {
+        return logInterval;
+    }
+
+    public void setLogInterval(int logInterval) {
+        this.logInterval = logInterval;
     }
 
 }

@@ -54,20 +54,20 @@ public final class ExpressionBuilder implements NodeVisitor {
         "org.apache.el.ExpressionBuilder.CACHE_SIZE";
 
     static {
+        String cacheSizeStr;
         if (System.getSecurityManager() == null) {
-            CACHE_SIZE = Integer.parseInt(
-                    System.getProperty(CACHE_SIZE_PROP, "5000"));
+            cacheSizeStr = System.getProperty(CACHE_SIZE_PROP, "5000");
         } else {
-            CACHE_SIZE = AccessController.doPrivileged(
-                    new PrivilegedAction<Integer>() {
+            cacheSizeStr = AccessController.doPrivileged(
+                    new PrivilegedAction<String>() {
 
                     @Override
-                    public Integer run() {
-                        return Integer.valueOf(
-                                System.getProperty(CACHE_SIZE_PROP, "5000"));
+                    public String run() {
+                        return System.getProperty(CACHE_SIZE_PROP, "5000");
                     }
-                }).intValue();
+                });
         }
+        CACHE_SIZE = Integer.parseInt(cacheSizeStr);
     }
 
     private static final ConcurrentCache<String, Node> cache =
@@ -197,11 +197,13 @@ public final class ExpressionBuilder implements NodeVisitor {
                 throw new ELException(MessageFactory.get(
                         "error.fnMapper.method", funcNode.getOutputName()));
             }
-            int pcnt = m.getParameterTypes().length;
-            if (node.jjtGetNumChildren() != pcnt) {
+            int methodParameterCount = m.getParameterTypes().length;
+            int inputParameterCount = node.jjtGetNumChildren();
+            if (m.isVarArgs() && inputParameterCount < methodParameterCount - 1 ||
+                    !m.isVarArgs() && inputParameterCount != methodParameterCount) {
                 throw new ELException(MessageFactory.get(
                         "error.fnMapper.paramcount", funcNode.getOutputName(),
-                        "" + pcnt, "" + node.jjtGetNumChildren()));
+                        "" + methodParameterCount, "" + node.jjtGetNumChildren()));
             }
         } else if (node instanceof AstIdentifier && this.varMapper != null) {
             String variable = ((AstIdentifier) node).getImage();
